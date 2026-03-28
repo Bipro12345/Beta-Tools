@@ -1,0 +1,182 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>HTML to PDF Converter</title>
+    
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/html2pdf.js/0.10.1/html2pdf.bundle.min.js"></script>
+
+    <style>
+        body { 
+            font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif; 
+            text-align: center; 
+            padding: 40px; 
+            background-color: #f8fafc; 
+        }
+        .card { 
+            background: white; 
+            padding: 40px; 
+            border-radius: 12px; 
+            box-shadow: 0 8px 24px rgba(0,0,0,0.1); 
+            display: inline-block;
+            border-top: 5px solid #ef4444; /* Red accent */
+            max-width: 500px;
+            width: 100%;
+            text-align: left;
+        }
+        h2 { color: #ef4444; text-align: center; margin-top: 0; }
+        
+        /* Tab Styling */
+        .tabs { display: flex; margin-bottom: 20px; border-bottom: 2px solid #e2e8f0; }
+        .tab { 
+            flex: 1; text-align: center; padding: 10px; cursor: pointer; 
+            font-weight: bold; color: #64748b; transition: 0.3s;
+        }
+        .tab.active { color: #ef4444; border-bottom: 3px solid #ef4444; margin-bottom: -2px; }
+        
+        .tab-content { display: none; }
+        .tab-content.active { display: block; }
+
+        .input-group { margin-bottom: 20px; }
+        label { font-size: 14px; font-weight: bold; color: #555; display: block; margin-bottom: 5px; }
+        input[type="file"], input[type="url"] { 
+            padding: 10px; width: 100%; box-sizing: border-box; 
+            border: 1px solid #ccc; border-radius: 5px; 
+        }
+        button { 
+            background-color: #ef4444; color: white; border: none; 
+            padding: 12px 24px; border-radius: 6px; cursor: pointer; 
+            font-size: 16px; font-weight: bold; width: 100%; 
+            transition: 0.3s; 
+        }
+        button:hover { background-color: #dc2626; }
+        button:disabled { background-color: #fca5a5; cursor: not-allowed; }
+        
+        #status { text-align: center; margin-top: 15px; font-weight: bold; color: #555; }
+        
+        /* A hidden box where we temporarily render the HTML before taking the PDF snapshot */
+        #render-container { display: none; }
+    </style>
+</head>
+<body>
+
+    <div class="card">
+        <h2>HTML to PDF</h2>
+        
+        <div class="tabs">
+            <div class="tab active" id="tab-file">1. Upload HTML File</div>
+            <div class="tab" id="tab-url">2. Convert URL</div>
+        </div>
+
+        <div class="tab-content active" id="content-file">
+            <div class="input-group">
+                <label for="htmlInput">Select an .html file from your computer:</label>
+                <input type="file" id="htmlInput" accept=".html,.htm">
+            </div>
+            <button id="convertFileBtn">Convert File to PDF</button>
+        </div>
+
+        <div class="tab-content" id="content-url">
+            <div class="input-group">
+                <label for="urlInput">Enter Website URL:</label>
+                <input type="url" id="urlInput" placeholder="https://example.com">
+                <small style="color: #888; display: block; margin-top: 5px;">Note: Complex sites may lose styling due to browser security (CORS).</small>
+            </div>
+            <button id="convertUrlBtn">Convert URL to PDF</button>
+        </div>
+
+        <div id="status"></div>
+    </div>
+
+    <div id="render-container"></div>
+
+    <script>
+        // --- Tab Switching Logic ---
+        const tabFile = document.getElementById('tab-file');
+        const tabUrl = document.getElementById('tab-url');
+        const contentFile = document.getElementById('content-file');
+        const contentUrl = document.getElementById('content-url');
+
+        tabFile.addEventListener('click', () => {
+            tabFile.classList.add('active');
+            tabUrl.classList.remove('active');
+            contentFile.classList.add('active');
+            contentUrl.classList.remove('active');
+        });
+
+        tabUrl.addEventListener('click', () => {
+            tabUrl.classList.add('active');
+            tabFile.classList.remove('active');
+            contentUrl.classList.add('active');
+            contentFile.classList.remove('active');
+        });
+
+        // --- PDF Generation Options ---
+        const pdfOptions = {
+            margin:       10,
+            filename:     'Converted_Page.pdf',
+            image:        { type: 'jpeg', quality: 0.98 },
+            html2canvas:  { scale: 2, useCORS: true }, // useCORS tries to load external images
+            jsPDF:        { unit: 'mm', format: 'a4', orientation: 'portrait' }
+        };
+
+        const renderContainer = document.getElementById('render-container');
+        const statusText = document.getElementById('status');
+
+        // --- OPTION 1: File to PDF ---
+        document.getElementById('convertFileBtn').addEventListener('click', () => {
+            const fileInput = document.getElementById('htmlInput');
+            if (!fileInput.files[0]) return alert("Please select an HTML file!");
+
+            statusText.innerText = "Reading file and generating PDF...";
+            const file = fileInput.files[0];
+            const reader = new FileReader();
+
+            reader.onload = function(event) {
+                const htmlContent = event.target.result;
+                renderContainer.innerHTML = htmlContent; // Inject HTML into hidden div
+
+                // Convert to PDF
+                html2pdf().set(pdfOptions).from(renderContainer).save().then(() => {
+                    statusText.innerText = "Success! PDF downloaded.";
+                    renderContainer.innerHTML = ""; // Clean up
+                });
+            };
+            reader.readAsText(file);
+        });
+
+        // --- OPTION 2: URL to PDF (Using a Free Proxy) ---
+        document.getElementById('convertUrlBtn').addEventListener('click', async () => {
+            const url = document.getElementById('urlInput').value.trim();
+            if (!url) return alert("Please enter a valid URL!");
+
+            statusText.innerText = "Fetching website data... (This might take a moment)";
+            
+            // We use AllOrigins as a free CORS proxy to bypass browser security
+            const proxyUrl = `https://api.allorigins.win/get?url=${encodeURIComponent(url)}`;
+
+            try {
+                const response = await fetch(proxyUrl);
+                if (!response.ok) throw new Error("Network response was not ok");
+                
+                const data = await response.json();
+                
+                // Inject the fetched HTML into our hidden container
+                renderContainer.innerHTML = data.contents;
+
+                statusText.innerText = "Generating PDF...";
+                
+                html2pdf().set(pdfOptions).from(renderContainer).save().then(() => {
+                    statusText.innerText = "Success! PDF downloaded.";
+                    renderContainer.innerHTML = ""; // Clean up
+                });
+
+            } catch (error) {
+                console.error(error);
+                statusText.innerText = "Error: Could not fetch URL due to strict website security.";
+            }
+        });
+    </script>
+</body>
+</html>

@@ -1,0 +1,145 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Add Watermark to PDF</title>
+    
+    <script src="https://unpkg.com/pdf-lib@1.17.1/dist/pdf-lib.min.js"></script>
+
+    <style>
+        body { 
+            font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif; 
+            text-align: center; 
+            padding: 50px; 
+            background-color: #e0f2fe; /* Light blue background */
+        }
+        .card { 
+            background: white; 
+            padding: 40px; 
+            border-radius: 12px; 
+            box-shadow: 0 8px 24px rgba(0,0,0,0.1); 
+            display: inline-block;
+            border-top: 5px solid #0284c7; /* Ocean blue accent */
+            max-width: 400px;
+            width: 100%;
+        }
+        h2 { color: #0284c7; margin-top: 0; }
+        .input-group {
+            text-align: left;
+            margin-bottom: 20px;
+        }
+        label {
+            font-size: 14px;
+            font-weight: bold;
+            color: #555;
+            display: block;
+            margin-bottom: 5px;
+        }
+        input[type="file"], input[type="text"] { 
+            padding: 10px;
+            width: 100%;
+            box-sizing: border-box;
+            border: 1px solid #ccc;
+            border-radius: 5px;
+        }
+        button { 
+            background-color: #0284c7; 
+            color: white; 
+            border: none; 
+            padding: 12px 24px; 
+            border-radius: 6px; 
+            cursor: pointer; 
+            font-size: 16px;
+            font-weight: bold;
+            width: 100%;
+            transition: background-color 0.3s;
+        }
+        button:hover { background-color: #0369a1; }
+        #status { margin-top: 15px; font-weight: bold; color: #555; }
+    </style>
+</head>
+<body>
+
+    <div class="card">
+        <h2>Watermark PDF</h2>
+        
+        <div class="input-group">
+            <label for="pdfInput">1. Select your PDF:</label>
+            <input type="file" id="pdfInput" accept=".pdf">
+        </div>
+
+        <div class="input-group">
+            <label for="watermarkText">2. Enter Watermark Text:</label>
+            <input type="text" id="watermarkText" placeholder="e.g., CONFIDENTIAL" value="CONFIDENTIAL">
+        </div>
+
+        <button id="watermarkBtn">Add Watermark & Download</button>
+        <div id="status"></div>
+    </div>
+
+    <script>
+        // We need extra tools from PDF-lib for colors and rotation
+        const { PDFDocument, rgb, degrees, StandardFonts } = PDFLib;
+
+        document.getElementById('watermarkBtn').addEventListener('click', async () => {
+            const fileInput = document.getElementById('pdfInput');
+            const textInput = document.getElementById('watermarkText').value || "CONFIDENTIAL";
+            const status = document.getElementById('status');
+            
+            if (!fileInput.files[0]) {
+                alert("Please select a PDF file first!");
+                return;
+            }
+
+            status.innerText = "Applying watermark... please wait.";
+            const file = fileInput.files[0];
+            const arrayBuffer = await file.arrayBuffer();
+
+            try {
+                // 1. Load the document and standard font
+                const pdfDoc = await PDFDocument.load(arrayBuffer);
+                const helveticaFont = await pdfDoc.embedFont(StandardFonts.HelveticaBold);
+                const pages = pdfDoc.getPages();
+
+                // 2. Loop through every single page in the PDF
+                pages.forEach((page) => {
+                    const { width, height } = page.getSize();
+                    const fontSize = 60;
+
+                    // Calculate text width to help center it
+                    const textWidth = helveticaFont.widthOfTextAtSize(textInput, fontSize);
+                    
+                    // 3. Draw the text onto the page
+                    page.drawText(textInput, {
+                        x: width / 2 - (textWidth / 2) + 50, // Center X (adjusted for angle)
+                        y: height / 2 - 50,                  // Center Y
+                        size: fontSize,
+                        font: helveticaFont,
+                        color: rgb(0.8, 0.2, 0.2),           // Red color
+                        opacity: 0.3,                        // 30% visible (see-through)
+                        rotate: degrees(45),                 // Diagonal slant
+                    });
+                });
+
+                // 4. Save and download
+                const pdfBytes = await pdfDoc.save();
+                const blob = new Blob([pdfBytes], { type: 'application/pdf' });
+                const url = URL.createObjectURL(blob);
+                const link = document.createElement('a');
+                link.href = url;
+                link.download = 'Watermarked_Document.pdf';
+                document.body.appendChild(link);
+                link.click();
+                document.body.removeChild(link);
+                URL.revokeObjectURL(url);
+
+                status.innerText = "Success! Watermark applied.";
+            } catch (err) {
+                console.error(err);
+                status.innerText = "Error: Could not modify the PDF.";
+            }
+        });
+    </script>
+</body>
+</html>

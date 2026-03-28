@@ -1,0 +1,134 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Lock PDF (Password Protect)</title>
+
+    <style>
+        body { 
+            font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif; 
+            text-align: center; 
+            padding: 40px; 
+            background-color: #1e293b; /* Dark slate background */
+            color: #f8fafc;
+        }
+        .card { 
+            background: #0f172a; 
+            padding: 40px; 
+            border-radius: 12px; 
+            box-shadow: 0 10px 30px rgba(0,0,0,0.5); 
+            display: inline-block;
+            border-top: 5px solid #f43f5e; /* Rose/Red accent for security */
+            max-width: 450px;
+            width: 100%;
+            text-align: left;
+        }
+        h2 { color: #f43f5e; text-align: center; margin-top: 0; }
+        .input-group { margin-bottom: 20px; }
+        label { font-size: 14px; font-weight: bold; color: #cbd5e1; display: block; margin-bottom: 5px; }
+        
+        input[type="file"], input[type="password"] { 
+            padding: 12px; 
+            width: 100%; 
+            box-sizing: border-box; 
+            border: 1px solid #334155; 
+            border-radius: 6px; 
+            background-color: #1e293b;
+            color: white;
+        }
+        input[type="file"]::file-selector-button {
+            background-color: #334155;
+            color: white;
+            border: none;
+            padding: 8px 12px;
+            border-radius: 4px;
+            cursor: pointer;
+            margin-right: 10px;
+        }
+        
+        button { 
+            background-color: #f43f5e; color: white; border: none; 
+            padding: 14px 24px; border-radius: 6px; cursor: pointer; 
+            font-size: 16px; font-weight: bold; width: 100%; 
+            transition: 0.3s; 
+        }
+        button:hover { background-color: #e11d48; }
+        button:disabled { background-color: #fda4af; cursor: not-allowed; }
+        
+        #status { text-align: center; margin-top: 15px; font-weight: bold; color: #94a3b8; }
+    </style>
+</head>
+<body>
+
+    <div class="card">
+        <h2>Lock PDF</h2>
+        
+        <div class="input-group">
+            <label for="pdfInput">1. Select PDF to secure:</label>
+            <input type="file" id="pdfInput" accept=".pdf">
+        </div>
+
+        <div class="input-group">
+            <label for="passwordInput">2. Create a Password:</label>
+            <input type="password" id="passwordInput" placeholder="Enter a strong password...">
+        </div>
+
+        <button id="lockBtn">Encrypt & Download</button>
+        <div id="status"></div>
+    </div>
+
+    <script type="module">
+        // We pull the encryption library directly from the esm.sh CDN
+        import { encryptPDF } from 'https://esm.sh/@pdfsmaller/pdf-encrypt-lite@1.0.2';
+
+        document.getElementById('lockBtn').addEventListener('click', async () => {
+            const fileInput = document.getElementById('pdfInput');
+            const passwordInput = document.getElementById('passwordInput').value.trim();
+            const status = document.getElementById('status');
+            const btn = document.getElementById('lockBtn');
+
+            if (!fileInput.files[0]) return alert("Please select a PDF file.");
+            if (!passwordInput) return alert("Please enter a password to lock the file!");
+
+            btn.disabled = true;
+            status.innerText = "Encrypting document... Please wait.";
+            status.style.color = "#fbbf24"; // Yellow loading text
+
+            try {
+                // 1. Read the file into raw bytes (Uint8Array)
+                const file = fileInput.files[0];
+                const arrayBuffer = await file.arrayBuffer();
+                const pdfBytes = new Uint8Array(arrayBuffer);
+
+                // 2. Encrypt the PDF! 
+                // We pass the password twice (once for the 'User' to open it, once for the 'Owner' to edit it)
+                const encryptedBytes = await encryptPDF(pdfBytes, passwordInput, passwordInput);
+
+                // 3. Package the encrypted bytes back into a downloadable file
+                const blob = new Blob([encryptedBytes], { type: 'application/pdf' });
+                const url = URL.createObjectURL(blob);
+                
+                const link = document.createElement('a');
+                link.href = url;
+                link.download = 'Locked_Document.pdf';
+                document.body.appendChild(link);
+                link.click();
+                document.body.removeChild(link);
+                URL.revokeObjectURL(url);
+
+                status.innerText = "Success! Your PDF is locked.";
+                status.style.color = "#10b981"; // Green success text
+                document.getElementById('passwordInput').value = ""; // Clear password for safety
+
+            } catch (err) {
+                console.error(err);
+                status.innerText = "Error: Could not encrypt the file.";
+                status.style.color = "#ef4444"; // Red error text
+            } finally {
+                btn.disabled = false;
+            }
+        });
+    </script>
+</body>
+</html>

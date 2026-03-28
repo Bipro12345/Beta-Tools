@@ -1,0 +1,227 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Organize PDF Pages</title>
+
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.4.120/pdf.min.js"></script>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/Sortable/1.15.0/Sortable.min.js"></script>
+    <script src="https://unpkg.com/pdf-lib@1.17.1/dist/pdf-lib.min.js"></script>
+
+    <style>
+        body { 
+            font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif; 
+            text-align: center; 
+            padding: 30px; 
+            background-color: #f3f4f6; 
+        }
+        .header-card {
+            background: white; padding: 20px; border-radius: 12px; 
+            box-shadow: 0 4px 10px rgba(0,0,0,0.05);
+            max-width: 600px; margin: 0 auto 20px auto;
+            border-top: 5px solid #8b5cf6; /* Purple accent */
+        }
+        h2 { color: #8b5cf6; margin-top: 0; }
+        input[type="file"] { padding: 10px; width: 100%; box-sizing: border-box; margin-bottom: 15px; }
+        
+        button { 
+            background-color: #8b5cf6; color: white; border: none; 
+            padding: 12px 24px; border-radius: 6px; cursor: pointer; 
+            font-size: 16px; font-weight: bold; transition: 0.3s; 
+        }
+        button:hover { background-color: #7c3aed; }
+        button:disabled { background-color: #c4b5fd; cursor: not-allowed; }
+
+        /* The Grid that holds the pages */
+        #pageGrid {
+            display: grid;
+            grid-template-columns: repeat(auto-fill, minmax(150px, 1fr));
+            gap: 20px;
+            max-width: 900px;
+            margin: 0 auto;
+            padding: 20px 0;
+        }
+
+        /* Individual Page Thumbnail Card */
+        .page-card {
+            background: white;
+            padding: 10px;
+            border-radius: 8px;
+            box-shadow: 0 4px 6px rgba(0,0,0,0.1);
+            cursor: grab;
+            position: relative;
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+            transition: transform 0.2s;
+        }
+        .page-card:active { cursor: grabbing; transform: scale(0.95); }
+        
+        .page-card canvas {
+            max-width: 100%;
+            height: auto;
+            border: 1px solid #e5e7eb;
+            margin-bottom: 10px;
+        }
+
+        .page-number { font-size: 14px; font-weight: bold; color: #4b5563; }
+
+        /* The Delete Button on each thumbnail */
+        .delete-btn {
+            position: absolute;
+            top: -10px;
+            right: -10px;
+            background: #ef4444;
+            color: white;
+            border: none;
+            border-radius: 50%;
+            width: 25px;
+            height: 25px;
+            cursor: pointer;
+            font-weight: bold;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            box-shadow: 0 2px 4px rgba(0,0,0,0.2);
+            padding: 0;
+        }
+        .delete-btn:hover { background: #dc2626; transform: scale(1.1); }
+
+        #status { font-weight: bold; color: #555; margin-top: 10px; }
+    </style>
+</head>
+<body>
+
+    <div class="header-card">
+        <h2>Organize PDF Pages</h2>
+        <p style="color: #666; font-size: 14px;">Upload a PDF, drag pages to reorder, or click 'X' to delete them.</p>
+        <input type="file" id="pdfInput" accept=".pdf">
+        <button id="saveBtn" style="display: none;">Save New PDF</button>
+        <div id="status"></div>
+    </div>
+
+    <div id="pageGrid"></div>
+
+    <script>
+        pdfjsLib.GlobalWorkerOptions.workerSrc = 'https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.4.120/pdf.worker.min.js';
+
+        let originalPdfBytes = null; // Store the uploaded file bytes
+        const pageGrid = document.getElementById('pageGrid');
+        const status = document.getElementById('status');
+        const saveBtn = document.getElementById('saveBtn');
+
+        // --- 1. Initialize SortableJS for Drag and Drop ---
+        new Sortable(pageGrid, {
+            animation: 150,
+            ghostClass: 'blue-background-class'
+        });
+
+        // --- 2. Load PDF and Render Thumbnails ---
+        document.getElementById('pdfInput').addEventListener('change', async (e) => {
+            const file = e.target.files[0];
+            if (!file) return;
+
+            status.innerText = "Loading pages... Please wait.";
+            pageGrid.innerHTML = ""; // Clear old grid
+            saveBtn.style.display = "none";
+
+            try {
+                originalPdfBytes = await file.arrayBuffer();
+                const pdf = await pdfjsLib.getDocument({ data: originalPdfBytes }).promise;
+
+                for (let i = 1; i <= pdf.numPages; i++) {
+                    const page = await pdf.getPage(i);
+                    // Scale 0.5 makes a smaller thumbnail image to keep the browser fast
+                    const viewport = page.getViewport({ scale: 0.5 }); 
+
+                    const canvas = document.createElement('canvas');
+                    const ctx = canvas.getContext('2d');
+                    canvas.height = viewport.height;
+                    canvas.width = viewport.width;
+
+                    await page.render({ canvasContext: ctx, viewport: viewport }).promise;
+
+                    // Create the HTML Card for this page
+                    const card = document.createElement('div');
+                    card.className = 'page-card';
+                    // We store the ORIGINAL page index (0-based) so PDF-lib knows which page to grab later
+                    card.dataset.originalIndex = i - 1; 
+
+                    const deleteBtn = document.createElement('button');
+                    deleteBtn.className = 'delete-btn';
+                    deleteBtn.innerHTML = '✕';
+                    deleteBtn.onclick = () => card.remove(); // Removes the card from the screen
+
+                    const pageLabel = document.createElement('div');
+                    pageLabel.className = 'page-number';
+                    pageLabel.innerText = `Page ${i}`;
+
+                    card.appendChild(deleteBtn);
+                    card.appendChild(canvas);
+                    card.appendChild(pageLabel);
+                    pageGrid.appendChild(card);
+                }
+
+                status.innerText = "Drag to reorder. Click ✕ to remove.";
+                saveBtn.style.display = "inline-block";
+
+            } catch (error) {
+                console.error(error);
+                status.innerText = "Error loading PDF.";
+            }
+        });
+
+        // --- 3. Build and Save the New PDF ---
+        saveBtn.addEventListener('click', async () => {
+            if (!originalPdfBytes) return;
+
+            status.innerText = "Generating new PDF...";
+            saveBtn.disabled = true;
+
+            try {
+                const { PDFDocument } = PDFLib;
+                
+                // Load the original PDF
+                const donorPdf = await PDFDocument.load(originalPdfBytes);
+                // Create a brand new, empty PDF
+                const newPdf = await PDFDocument.create();
+
+                // Look at the DOM (the screen) to see what order the cards are currently in
+                const currentCards = document.querySelectorAll('.page-card');
+                
+                // Create an array of the original page indexes based on the current visual order
+                const pagesToKeep = Array.from(currentCards).map(card => parseInt(card.dataset.originalIndex));
+
+                if (pagesToKeep.length === 0) {
+                    alert("You deleted all the pages! Nothing to save.");
+                    saveBtn.disabled = false;
+                    status.innerText = "";
+                    return;
+                }
+
+                // Copy the pages from the donor PDF into the new PDF in the exact order the user arranged them
+                const copiedPages = await newPdf.copyPages(donorPdf, pagesToKeep);
+                copiedPages.forEach((page) => newPdf.addPage(page));
+
+                // Save and Download
+                const pdfBytes = await newPdf.save();
+                const blob = new Blob([pdfBytes], { type: 'application/pdf' });
+                const url = URL.createObjectURL(blob);
+                const link = document.createElement('a');
+                link.href = url;
+                link.download = 'Organized_Document.pdf';
+                link.click();
+                URL.revokeObjectURL(url);
+
+                status.innerText = "Success! File downloaded.";
+            } catch (error) {
+                console.error(error);
+                status.innerText = "Error saving PDF.";
+            } finally {
+                saveBtn.disabled = false;
+            }
+        });
+    </script>
+</body>
+</html>

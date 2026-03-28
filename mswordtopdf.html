@@ -1,0 +1,143 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Word to PDF Converter</title>
+
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/mammoth/1.4.21/mammoth.browser.min.js"></script>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/html2pdf.js/0.10.1/html2pdf.bundle.min.js"></script>
+
+    <style>
+        body { 
+            font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif; 
+            text-align: center; 
+            padding: 40px; 
+            background-color: #eff6ff; /* Light blue background */
+        }
+        .card { 
+            background: white; 
+            padding: 40px; 
+            border-radius: 12px; 
+            box-shadow: 0 8px 24px rgba(0,0,0,0.1); 
+            display: inline-block;
+            border-top: 5px solid #2b579a; /* MS Word Blue */
+            max-width: 450px;
+            width: 100%;
+            text-align: left;
+        }
+        h2 { color: #2b579a; text-align: center; margin-top: 0; }
+        .input-group { margin-bottom: 20px; }
+        label { font-size: 14px; font-weight: bold; color: #555; display: block; margin-bottom: 5px; }
+        
+        input[type="file"] { 
+            padding: 10px; width: 100%; box-sizing: border-box; 
+            border: 1px solid #ccc; border-radius: 5px; 
+        }
+        
+        button { 
+            background-color: #2b579a; color: white; border: none; 
+            padding: 12px 24px; border-radius: 6px; cursor: pointer; 
+            font-size: 16px; font-weight: bold; width: 100%; 
+            transition: 0.3s; 
+            margin-top: 10px;
+        }
+        button:hover { background-color: #1e3f6f; }
+        button:disabled { background-color: #93a8c7; cursor: not-allowed; }
+        
+        #status { text-align: center; margin-top: 15px; font-weight: bold; color: #555; }
+        .warning { font-size: 12px; color: #dc2626; margin-top: 10px; text-align: center; }
+        
+        /* A hidden box where we temporarily render the Word content as HTML */
+        #render-container { 
+            display: none; 
+            padding: 40px; /* Gives the PDF some nice margins */
+            font-family: 'Times New Roman', Times, serif; 
+            line-height: 1.5;
+        }
+    </style>
+</head>
+<body>
+
+    <div class="card">
+        <h2>Word to PDF</h2>
+        
+        <div class="input-group">
+            <label for="wordInput">Select a Word Document (.docx):</label>
+            <input type="file" id="wordInput" accept=".docx">
+        </div>
+
+        <button id="convertBtn">Convert to PDF</button>
+        <div id="status"></div>
+        <p class="warning">Note: Complex formatting, page layouts, and floating images may be lost in browser-based conversion.</p>
+    </div>
+
+    <div id="render-container"></div>
+
+    <script>
+        document.getElementById('convertBtn').addEventListener('click', () => {
+            const fileInput = document.getElementById('wordInput');
+            const status = document.getElementById('status');
+            const btn = document.getElementById('convertBtn');
+            const renderContainer = document.getElementById('render-container');
+
+            if (!fileInput.files[0]) return alert("Please select a .docx file first!");
+
+            btn.disabled = true;
+            status.innerText = "Extracting Word content...";
+            
+            const file = fileInput.files[0];
+            const reader = new FileReader();
+
+            reader.onload = function(e) {
+                const arrayBuffer = e.target.result;
+
+                // Step 1: Use Mammoth to turn the Word file into HTML
+                mammoth.convertToHtml({ arrayBuffer: arrayBuffer })
+                    .then(function(result) {
+                        // Put the extracted HTML into our hidden container
+                        renderContainer.innerHTML = result.value;
+                        
+                        if (result.messages.length > 0) {
+                            console.warn("Mammoth warnings:", result.messages);
+                        }
+
+                        status.innerText = "Drawing PDF Document...";
+
+                        // Step 2: Use html2pdf to take a picture of that HTML
+                        const pdfOptions = {
+                            margin:       10,
+                            filename:     'Converted_Word_Doc.pdf',
+                            image:        { type: 'jpeg', quality: 0.98 },
+                            html2canvas:  { scale: 2 },
+                            jsPDF:        { unit: 'mm', format: 'a4', orientation: 'portrait' }
+                        };
+
+                        // We have to temporarily make the container visible to snapshot it, 
+                        // but we position it off-screen so the user doesn't see it blink.
+                        renderContainer.style.display = 'block';
+                        renderContainer.style.position = 'absolute';
+                        renderContainer.style.left = '-9999px';
+
+                        html2pdf().set(pdfOptions).from(renderContainer).save().then(() => {
+                            status.innerText = "Success! PDF downloaded.";
+                            
+                            // Clean up and hide again
+                            renderContainer.style.display = 'none';
+                            renderContainer.innerHTML = '';
+                            btn.disabled = false;
+                        });
+
+                    })
+                    .catch(function(err) {
+                        console.error(err);
+                        status.innerText = "Error: Could not read Word file.";
+                        btn.disabled = false;
+                    });
+            };
+
+            reader.readAsArrayBuffer(file);
+        });
+    </script>
+</body>
+</html>

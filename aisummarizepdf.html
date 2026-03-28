@@ -1,0 +1,151 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>AI PDF Summarizer</title>
+    
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.4.120/pdf.min.js"></script>
+
+    <style>
+        body { 
+            font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif; 
+            text-align: center; 
+            padding: 40px; 
+            background-color: #f0f4f8; 
+        }
+        .card { 
+            background: white; 
+            padding: 40px; 
+            border-radius: 12px; 
+            box-shadow: 0 8px 24px rgba(0,0,0,0.1); 
+            display: inline-block;
+            border-top: 5px solid #007bff; 
+            max-width: 600px;
+            width: 100%;
+            text-align: left;
+        }
+        h2 { color: #007bff; text-align: center; margin-top: 0; }
+        .input-group { margin-bottom: 20px; }
+        label { font-size: 14px; font-weight: bold; color: #555; display: block; margin-bottom: 5px; }
+        input[type="file"], input[type="password"] { 
+            padding: 10px; width: 100%; box-sizing: border-box; 
+            border: 1px solid #ccc; border-radius: 5px; 
+        }
+        button { 
+            background-color: #007bff; color: white; border: none; 
+            padding: 12px 24px; border-radius: 6px; cursor: pointer; 
+            font-size: 16px; font-weight: bold; width: 100%; 
+            transition: 0.3s; 
+        }
+        button:hover { background-color: #0056b3; }
+        button:disabled { background-color: #99c2ff; cursor: not-allowed; }
+        #summaryBox { 
+            margin-top: 20px; padding: 20px; background-color: #f8f9fa; 
+            border-left: 4px solid #007bff; border-radius: 4px; 
+            font-size: 15px; line-height: 1.6; color: #333;
+            display: none; white-space: pre-wrap;
+        }
+        #status { text-align: center; margin-top: 15px; font-weight: bold; color: #555; }
+    </style>
+</head>
+<body>
+
+    <div class="card">
+        <h2>Gemini AI PDF Summarizer</h2>
+        
+        <div class="input-group">
+            <label for="apiKey">1. Enter your Gemini API Key:</label>
+            <input type="password" id="apiKey" placeholder="AIzaSy...">
+            <small style="color: #666; font-size: 12px;">Get a free key from Google AI Studio.</small>
+        </div>
+
+        <div class="input-group">
+            <label for="pdfInput">2. Select a PDF Document:</label>
+            <input type="file" id="pdfInput" accept=".pdf">
+        </div>
+
+        <button id="summarizeBtn">Extract & Summarize</button>
+        <div id="status"></div>
+        
+        <div id="summaryBox"></div>
+    </div>
+
+    <script>
+        // Set up PDF.js worker
+        pdfjsLib.GlobalWorkerOptions.workerSrc = 'https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.4.120/pdf.worker.min.js';
+
+        document.getElementById('summarizeBtn').addEventListener('click', async () => {
+            const apiKey = document.getElementById('apiKey').value.trim();
+            const fileInput = document.getElementById('pdfInput');
+            const status = document.getElementById('status');
+            const summaryBox = document.getElementById('summaryBox');
+            const btn = document.getElementById('summarizeBtn');
+
+            if (!apiKey) return alert("Please enter your Gemini API Key.");
+            if (!fileInput.files[0]) return alert("Please select a PDF file.");
+
+            btn.disabled = true;
+            summaryBox.style.display = "none";
+            summaryBox.innerText = "";
+            const file = fileInput.files[0];
+
+            try {
+                // --- STEP 1: EXTRACT TEXT FROM PDF ---
+                status.innerText = "Reading PDF text... Please wait.";
+                const arrayBuffer = await file.arrayBuffer();
+                const pdf = await pdfjsLib.getDocument({ data: arrayBuffer }).promise;
+                let fullText = "";
+
+                // Loop through pages (limiting to first 10 pages to avoid overloading the API in this basic example)
+                const pagesToRead = Math.min(pdf.numPages, 10); 
+                for (let i = 1; i <= pagesToRead; i++) {
+                    const page = await pdf.getPage(i);
+                    const textContent = await page.getTextContent();
+                    const pageText = textContent.items.map(item => item.str).join(" ");
+                    fullText += pageText + "\n";
+                }
+
+                if (!fullText.trim()) throw new Error("No readable text found in this PDF.");
+
+                // --- STEP 2: SEND TEXT TO GEMINI API ---
+                status.innerText = "Analyzing text with Gemini AI...";
+                
+                // We use the recommended gemini-1.5-flash model for fast text tasks
+                const apiUrl = `https://generativelanguage.googleapis.com/v1beta/models/gemini-1.5-flash:generateContent?key=${apiKey}`;
+                
+                const prompt = `Please read the following text extracted from a document and provide a clear, concise, and well-structured summary. Highlight the main points:\n\n${fullText}`;
+
+                const response = await fetch(apiUrl, {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({
+                        contents: [{ parts: [{ text: prompt }] }]
+                    })
+                });
+
+                if (!response.ok) {
+                    const errorData = await response.json();
+                    throw new Error(errorData.error.message || "API request failed");
+                }
+
+                const data = await response.json();
+                
+                // Extract the AI's text from the response data structure
+                const aiSummary = data.candidates[0].content.parts[0].text;
+
+                // --- STEP 3: DISPLAY THE RESULT ---
+                status.innerText = "Done!";
+                summaryBox.style.display = "block";
+                summaryBox.innerText = aiSummary;
+
+            } catch (err) {
+                console.error(err);
+                status.innerText = "Error: " + err.message;
+            } finally {
+                btn.disabled = false;
+            }
+        });
+    </script>
+</body>
+</html>

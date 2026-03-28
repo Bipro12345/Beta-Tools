@@ -1,0 +1,108 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>PDF to PPT Converter</title>
+    
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.4.120/pdf.min.js"></script>
+    <script src="https://cdn.jsdelivr.net/gh/gitbrent/PptxGenJS@3.12.0/dist/pptxgen.bundle.js"></script>
+
+    <style>
+        body { font-family: 'Segoe UI', sans-serif; text-align: center; padding: 50px; background-color: #fff3e0; /* Light orange background */ }
+        .card { 
+            background: white; padding: 40px; border-radius: 15px; 
+            box-shadow: 0 4px 20px rgba(0,0,0,0.08); display: inline-block; 
+            border-top: 5px solid #d35400; /* PowerPoint Orange */
+        }
+        h2 { color: #d35400; margin-top: 0; }
+        input[type="file"] { margin: 20px 0; width: 100%; padding: 10px; box-sizing: border-box; }
+        button { 
+            background-color: #d35400; color: white; border: none; 
+            padding: 12px 25px; border-radius: 8px; cursor: pointer; font-size: 16px;
+            width: 100%; font-weight: bold;
+        }
+        button:hover { background-color: #a04000; }
+        button:disabled { background-color: #f0b27a; cursor: not-allowed; }
+        #status { margin-top: 20px; font-weight: bold; color: #555; }
+    </style>
+</head>
+<body>
+
+    <div class="card">
+        <h2>PDF to PowerPoint</h2>
+        <p style="color: #666; font-size: 14px;">Convert each PDF page into a PPT slide</p>
+        <input type="file" id="pdfInput" accept=".pdf">
+        <br>
+        <button id="convertBtn">Convert to PPTX</button>
+        <div id="status"></div>
+    </div>
+
+    <script>
+        // Set up PDF.js worker
+        pdfjsLib.GlobalWorkerOptions.workerSrc = 'https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.4.120/pdf.worker.min.js';
+
+        document.getElementById('convertBtn').addEventListener('click', async () => {
+            const fileInput = document.getElementById('pdfInput');
+            const status = document.getElementById('status');
+            const btn = document.getElementById('convertBtn');
+
+            if (!fileInput.files[0]) return alert("Please select a PDF file!");
+
+            btn.disabled = true;
+            status.innerText = "Processing pages... 0%";
+
+            const file = fileInput.files[0];
+            const arrayBuffer = await file.arrayBuffer();
+            
+            try {
+                // Read the PDF
+                const pdf = await pdfjsLib.getDocument({ data: arrayBuffer }).promise;
+                
+                // Initialize a new PowerPoint presentation
+                const pptx = new PptxGenJS();
+                pptx.layout = 'LAYOUT_WIDE'; // Standard 16:9 widescreen
+
+                // Loop through every page
+                for (let i = 1; i <= pdf.numPages; i++) {
+                    status.innerText = `Processing page ${i} of ${pdf.numPages}...`;
+                    
+                    const page = await pdf.getPage(i);
+                    // Scale 2 makes the image sharper on the slide
+                    const viewport = page.getViewport({ scale: 2 }); 
+                    
+                    const canvas = document.createElement('canvas');
+                    const context = canvas.getContext('2d');
+                    canvas.height = viewport.height;
+                    canvas.width = viewport.width;
+
+                    await page.render({ canvasContext: context, viewport: viewport }).promise;
+                    
+                    // Turn the canvas drawing into a PNG image data string
+                    const imgData = canvas.toDataURL('image/png');
+
+                    // Create a new slide and stretch the image to cover it entirely
+                    const slide = pptx.addSlide();
+                    slide.addImage({ 
+                        data: imgData, 
+                        x: 0, y: 0, 
+                        w: '100%', h: '100%' 
+                    });
+                }
+
+                status.innerText = "Finalizing PPTX file... Please wait.";
+                
+                // Save and download the file
+                await pptx.writeFile({ fileName: "Converted_Presentation.pptx" });
+                
+                status.innerText = "Success! Download started.";
+            } catch (err) {
+                console.error(err);
+                status.innerText = "Error converting file.";
+            } finally {
+                btn.disabled = false;
+            }
+        });
+    </script>
+</body>
+</html>

@@ -1,0 +1,62 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Photo to PDF Converter</title>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/jspdf/2.5.1/jspdf.umd.min.js"></script>
+    <style>
+        body { font-family: sans-serif; text-align: center; padding: 50px; }
+        .container { border: 2px dashed #ccc; padding: 30px; max-width: 400px; margin: 0 auto; }
+        button { margin-top: 20px; padding: 10px 20px; cursor: pointer; background-color: #007bff; color: white; border: none; border-radius: 5px; }
+    </style>
+</head>
+<nav style="padding: 20px; background: #fff; border-bottom: 1px solid #eee; display: flex; align-items: center; gap: 10px;">
+    <a href="index.html" style="text-decoration: none; color: #0047FF; font-weight: bold; font-size: 1.2rem;">
+        ← Beta Tool's Home
+    </a>
+</nav>
+<body>
+
+    <div class="container">
+        <h2>Photo to PDF</h2>
+        <input type="file" id="imageInput" accept="image/png, image/jpeg" multiple>
+        <br>
+        <button id="convertBtn">Create PDF</button>
+    </div>
+
+    <script>
+        document.getElementById('convertBtn').addEventListener('click', async () => {
+            const fileInput = document.getElementById('imageInput');
+            
+            if (fileInput.files.length === 0) {
+                alert('Please select a photo first!');
+                return;
+            }
+
+            const file = fileInput.files[0];
+            const reader = new FileReader();
+
+            // When the image is loaded into the browser...
+            reader.onload = function(event) {
+                const imgData = event.target.result;
+                
+                // Initialize jsPDF
+                const { jsPDF } = window.jspdf;
+                const pdf = new jsPDF();
+
+                // Add the image to the PDF (Format, X, Y, Width, Height)
+                // Note: You can add logic here to resize the image to fit the page!
+                pdf.addImage(imgData, 'JPEG', 10, 10, 180, 160); 
+
+                // Download the PDF
+                pdf.save("converted_photo.pdf");
+            };
+
+            // Read the image file as a Data URL
+            reader.readAsDataURL(file);
+        });
+    </script>
+
+</body>
+</html>

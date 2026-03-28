@@ -1,0 +1,264 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>E-Sign PDF</title>
+
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.4.120/pdf.min.js"></script>
+    <script src="https://unpkg.com/pdf-lib@1.17.1/dist/pdf-lib.min.js"></script>
+
+    <style>
+        body { 
+            font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif; 
+            text-align: center; 
+            padding: 20px; 
+            background-color: #f8fafc; 
+            margin: 0;
+        }
+        .toolbar { 
+            background: white; padding: 20px; border-radius: 12px; 
+            box-shadow: 0 4px 15px rgba(0,0,0,0.05); margin-bottom: 20px; 
+            display: inline-block; border-top: 5px solid #2563eb; /* Blue accent */
+            max-width: 800px; width: 100%;
+        }
+        h2 { color: #2563eb; margin-top: 0; }
+        
+        /* The Drawing Pad */
+        .signature-container {
+            margin: 20px auto;
+            display: inline-block;
+            text-align: left;
+        }
+        #sigPad {
+            border: 2px dashed #94a3b8;
+            border-radius: 8px;
+            background-color: #f1f5f9;
+            cursor: crosshair;
+            touch-action: none; /* Prevents scrolling while drawing on mobile */
+        }
+        
+        .btn-group { display: flex; gap: 10px; justify-content: center; margin-top: 10px; }
+        button { 
+            background-color: #2563eb; color: white; border: none; 
+            padding: 10px 20px; border-radius: 6px; cursor: pointer; 
+            font-weight: bold; transition: 0.2s; 
+        }
+        button:hover { background-color: #1d4ed8; }
+        .btn-clear { background-color: #64748b; }
+        .btn-clear:hover { background-color: #475569; }
+        .btn-save { background-color: #10b981; font-size: 16px; padding: 12px 24px; }
+        .btn-save:hover { background-color: #059669; }
+
+        /* The PDF Viewer */
+        .editor-container { 
+            position: relative; display: inline-block; 
+            border: 1px solid #cbd5e1; box-shadow: 0 10px 25px rgba(0,0,0,0.1); 
+            background: white;
+        }
+        #pdfCanvas { cursor: crosshair; display: block; }
+        
+        #status { font-weight: bold; color: #555; margin-top: 15px; }
+    </style>
+</head>
+<body>
+
+    <div class="toolbar">
+        <h2>E-Sign PDF</h2>
+        
+        <input type="file" id="pdfInput" accept=".pdf" style="margin-bottom: 15px; width: 100%; max-width: 300px;">
+        
+        <div class="signature-container">
+            <label style="display:block; font-weight:bold; color:#475569; margin-bottom:5px;">1. Draw your signature here:</label>
+            <canvas id="sigPad" width="400" height="150"></canvas>
+            <div class="btn-group">
+                <button class="btn-clear" id="clearSigBtn">Clear Signature</button>
+            </div>
+        </div>
+
+        <p style="color: #64748b; font-size: 14px;">2. Click anywhere on the PDF below to stamp your signature. Then click Save.</p>
+        
+        <button class="btn-save" id="saveBtn" style="display: none;">3. Save & Download PDF</button>
+        <div id="status"></div>
+    </div>
+
+    <br>
+
+    <div class="editor-container" id="editorContainer" style="display: none;">
+        <canvas id="pdfCanvas"></canvas>
+    </div>
+
+    <script>
+        pdfjsLib.GlobalWorkerOptions.workerSrc = 'https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.4.120/pdf.worker.min.js';
+
+        // --- Signature Pad Logic ---
+        const sigPad = document.getElementById('sigPad');
+        const sigCtx = sigPad.getContext('2d');
+        let isDrawing = false;
+
+        // Set up drawing styles
+        sigCtx.lineWidth = 3;
+        sigCtx.lineCap = 'round';
+        sigCtx.strokeStyle = '#000000'; // Black ink
+
+        function startPosition(e) {
+            isDrawing = true;
+            draw(e);
+        }
+
+        function endPosition() {
+            isDrawing = false;
+            sigCtx.beginPath(); // Reset the path so lines don't connect
+        }
+
+        function draw(e) {
+            if (!isDrawing) return;
+
+            // Handle both mouse and touch events
+            const rect = sigPad.getBoundingClientRect();
+            const clientX = e.clientX || e.touches[0].clientX;
+            const clientY = e.clientY || e.touches[0].clientY;
+            
+            const x = clientX - rect.left;
+            const y = clientY - rect.top;
+
+            sigCtx.lineTo(x, y);
+            sigCtx.stroke();
+            sigCtx.beginPath();
+            sigCtx.moveTo(x, y);
+            
+            // Prevent scrolling on touch devices
+            if (e.type.includes('touch')) e.preventDefault(); 
+        }
+
+        sigPad.addEventListener('mousedown', startPosition);
+        sigPad.addEventListener('mouseup', endPosition);
+        sigPad.addEventListener('mousemove', draw);
+        
+        sigPad.addEventListener('touchstart', startPosition, {passive: false});
+        sigPad.addEventListener('touchend', endPosition);
+        sigPad.addEventListener('touchmove', draw, {passive: false});
+
+        document.getElementById('clearSigBtn').addEventListener('click', () => {
+            sigCtx.clearRect(0, 0, sigPad.width, sigPad.height);
+        });
+
+        // --- PDF Viewer & Stamping Logic ---
+        let currentPdfBytes = null;
+        const pdfCanvas = document.getElementById('pdfCanvas');
+        const pdfCtx = pdfCanvas.getContext('2d');
+        let pdfDimensions = { width: 0, height: 0 };
+        let signaturesToSave = []; // Stores { imgData, x, y }
+
+        // Load PDF
+        document.getElementById('pdfInput').addEventListener('change', async (e) => {
+            const file = e.target.files[0];
+            if (!file) return;
+
+            currentPdfBytes = await file.arrayBuffer();
+            const pdf = await pdfjsLib.getDocument({ data: currentPdfBytes }).promise;
+            
+            const page = await pdf.getPage(1);
+            const viewport = page.getViewport({ scale: 1.5 });
+
+            pdfCanvas.height = viewport.height;
+            pdfCanvas.width = viewport.width;
+            pdfDimensions = { width: viewport.width, height: viewport.height };
+
+            await page.render({ canvasContext: pdfCtx, viewport: viewport }).promise;
+            
+            document.getElementById('editorContainer').style.display = 'inline-block';
+            document.getElementById('saveBtn').style.display = 'inline-block';
+            signaturesToSave = []; // Reset placed signatures
+        });
+
+        // Click to stamp signature
+        pdfCanvas.addEventListener('click', (e) => {
+            if (!currentPdfBytes) return;
+
+            // Check if the signature pad is blank (a very basic check)
+            const blankCanvas = document.createElement('canvas');
+            blankCanvas.width = sigPad.width;
+            blankCanvas.height = sigPad.height;
+            if (sigPad.toDataURL() === blankCanvas.toDataURL()) {
+                return alert("Please draw a signature first!");
+            }
+
+            const rect = pdfCanvas.getBoundingClientRect();
+            const x = e.clientX - rect.left;
+            const y = e.clientY - rect.top;
+
+            // The size we want the signature to appear on the PDF
+            const sigDisplayWidth = 150;
+            const sigDisplayHeight = 56;
+
+            // Draw it visually on the HTML canvas so the user can see it
+            const sigImage = new Image();
+            sigImage.src = sigPad.toDataURL('image/png');
+            sigImage.onload = () => {
+                pdfCtx.drawImage(sigImage, x, y, sigDisplayWidth, sigDisplayHeight);
+            };
+
+            // Save the coordinates for when we bake the actual PDF file
+            signaturesToSave.push({
+                imgData: sigImage.src,
+                x: x,
+                y: y,
+                width: sigDisplayWidth,
+                height: sigDisplayHeight
+            });
+        });
+
+        // --- Save & Bake the PDF ---
+        document.getElementById('saveBtn').addEventListener('click', async () => {
+            if (!currentPdfBytes) return;
+            if (signaturesToSave.length === 0) return alert("Click on the document to place your signature!");
+
+            const status = document.getElementById('status');
+            status.innerText = "Applying signature securely...";
+            
+            try {
+                const { PDFDocument } = PDFLib;
+                const pdfDoc = await PDFDocument.load(currentPdfBytes);
+                const page = pdfDoc.getPages()[0]; 
+                
+                // PDF-lib coordinate math (Bottom-Left is 0,0)
+                const pdfHeight = page.getSize().height;
+                const scaleRatio = pdfHeight / pdfCanvas.height; 
+
+                for (const sig of signaturesToSave) {
+                    // Convert the Base64 PNG string into an image format pdf-lib understands
+                    const pngImage = await pdfDoc.embedPng(sig.imgData);
+                    
+                    const pdfX = sig.x * scaleRatio;
+                    // Flip Y axis and adjust for the height of the signature image
+                    const pdfY = pdfHeight - (sig.y * scaleRatio) - (sig.height * scaleRatio);
+
+                    // Draw the image permanently onto the page
+                    page.drawImage(pngImage, {
+                        x: pdfX,
+                        y: pdfY,
+                        width: sig.width * scaleRatio,
+                        height: sig.height * scaleRatio,
+                    });
+                }
+
+                // Download the final document
+                const modifiedPdfBytes = await pdfDoc.save();
+                const blob = new Blob([modifiedPdfBytes], { type: 'application/pdf' });
+                const url = URL.createObjectURL(blob);
+                const link = document.createElement('a');
+                link.href = url;
+                link.download = "Signed_Document.pdf";
+                link.click();
+                URL.revokeObjectURL(url);
+
+                status.innerText = "Success! Document signed and downloaded.";
+            } catch (error) {
+                console.error(error);
+                status.innerText = "Error saving signed document.";
+            }
+        });
+    </script>
+</body>
+</html>

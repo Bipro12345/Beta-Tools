@@ -1,0 +1,226 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Remove PDF Pages</title>
+
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.4.120/pdf.min.js"></script>
+    <script src="https://unpkg.com/pdf-lib@1.17.1/dist/pdf-lib.min.js"></script>
+
+    <style>
+        body { 
+            font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif; 
+            text-align: center; 
+            padding: 30px; 
+            background-color: #fef2f2; /* Light red background */
+        }
+        .header-card {
+            background: white; padding: 30px; border-radius: 12px; 
+            box-shadow: 0 4px 15px rgba(0,0,0,0.05);
+            max-width: 600px; margin: 0 auto 20px auto;
+            border-top: 5px solid #ef4444; /* Red accent for deletion */
+        }
+        h2 { color: #ef4444; margin-top: 0; }
+        input[type="file"] { padding: 10px; width: 100%; box-sizing: border-box; margin-bottom: 15px; }
+        
+        button { 
+            background-color: #ef4444; color: white; border: none; 
+            padding: 12px 24px; border-radius: 6px; cursor: pointer; 
+            font-size: 16px; font-weight: bold; transition: 0.3s; 
+        }
+        button:hover { background-color: #dc2626; }
+        button:disabled { background-color: #fca5a5; cursor: not-allowed; }
+
+        /* The Grid for thumbnails */
+        #pageGrid {
+            display: grid;
+            grid-template-columns: repeat(auto-fill, minmax(140px, 1fr));
+            gap: 20px;
+            max-width: 900px;
+            margin: 0 auto;
+            padding: 20px 0;
+        }
+
+        /* Individual Page Thumbnail Card */
+        .page-card {
+            background: white;
+            padding: 10px;
+            border-radius: 8px;
+            box-shadow: 0 4px 6px rgba(0,0,0,0.1);
+            cursor: pointer;
+            position: relative;
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+            transition: 0.2s;
+            border: 3px solid transparent;
+        }
+        
+        .page-card:hover { transform: translateY(-3px); box-shadow: 0 6px 12px rgba(0,0,0,0.15); }
+        
+        .page-card canvas {
+            max-width: 100%;
+            height: auto;
+            border: 1px solid #e5e7eb;
+            margin-bottom: 10px;
+        }
+
+        .page-number { font-size: 14px; font-weight: bold; color: #4b5563; }
+
+        /* Styling for when a user selects a page to delete */
+        .page-card.to-delete {
+            border-color: #ef4444;
+            background-color: #fef2f2;
+            opacity: 0.6;
+        }
+        
+        .page-card.to-delete::after {
+            content: "🗑️ Remove";
+            position: absolute;
+            top: 40%;
+            background: #ef4444;
+            color: white;
+            padding: 5px 10px;
+            border-radius: 4px;
+            font-weight: bold;
+            font-size: 14px;
+        }
+
+        #status { font-weight: bold; color: #555; margin-top: 15px; }
+    </style>
+</head>
+<body>
+
+    <div class="header-card">
+        <h2>Remove PDF Pages</h2>
+        <p style="color: #666; font-size: 14px;">1. Upload a PDF. <br> 2. Click the pages you want to delete. <br> 3. Download your new file.</p>
+        <input type="file" id="pdfInput" accept=".pdf">
+        <button id="saveBtn" style="display: none;">Remove Pages & Download</button>
+        <div id="status"></div>
+    </div>
+
+    <div id="pageGrid"></div>
+
+    <script>
+        pdfjsLib.GlobalWorkerOptions.workerSrc = 'https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.4.120/pdf.worker.min.js';
+
+        let originalPdfBytes = null; 
+        let totalPagesCount = 0;
+        let pagesToRemove = new Set(); // We use a Set to keep track of clicked pages
+
+        const pageGrid = document.getElementById('pageGrid');
+        const status = document.getElementById('status');
+        const saveBtn = document.getElementById('saveBtn');
+
+        // --- 1. Load PDF and Render Selectable Thumbnails ---
+        document.getElementById('pdfInput').addEventListener('change', async (e) => {
+            const file = e.target.files[0];
+            if (!file) return;
+
+            status.innerText = "Loading document... Please wait.";
+            pageGrid.innerHTML = ""; 
+            pagesToRemove.clear();
+            saveBtn.style.display = "none";
+
+            try {
+                originalPdfBytes = await file.arrayBuffer();
+                const pdf = await pdfjsLib.getDocument({ data: originalPdfBytes }).promise;
+                totalPagesCount = pdf.numPages;
+
+                for (let i = 1; i <= totalPagesCount; i++) {
+                    const page = await pdf.getPage(i);
+                    const viewport = page.getViewport({ scale: 0.5 }); // Low res thumbnail
+
+                    const canvas = document.createElement('canvas');
+                    const ctx = canvas.getContext('2d');
+                    canvas.height = viewport.height;
+                    canvas.width = viewport.width;
+
+                    await page.render({ canvasContext: ctx, viewport: viewport }).promise;
+
+                    // Create the Card
+                    const card = document.createElement('div');
+                    card.className = 'page-card';
+                    card.dataset.pageIndex = i - 1; // 0-based index for pdf-lib
+
+                    const pageLabel = document.createElement('div');
+                    pageLabel.className = 'page-number';
+                    pageLabel.innerText = `Page ${i}`;
+
+                    // Toggle the "to-delete" class when clicked
+                    card.addEventListener('click', () => {
+                        card.classList.toggle('to-delete');
+                        const index = parseInt(card.dataset.pageIndex);
+                        
+                        if (pagesToRemove.has(index)) {
+                            pagesToRemove.delete(index); // Un-mark
+                        } else {
+                            pagesToRemove.add(index); // Mark for deletion
+                        }
+                    });
+
+                    card.appendChild(canvas);
+                    card.appendChild(pageLabel);
+                    pageGrid.appendChild(card);
+                }
+
+                status.innerText = "Click on the pages you want to delete.";
+                saveBtn.style.display = "inline-block";
+
+            } catch (error) {
+                console.error(error);
+                status.innerText = "Error loading PDF.";
+            }
+        });
+
+        // --- 2. Remove Pages and Save ---
+        saveBtn.addEventListener('click', async () => {
+            if (!originalPdfBytes) return;
+
+            // Check if they are trying to delete EVERY page
+            if (pagesToRemove.size === totalPagesCount) {
+                return alert("You can't delete every single page! The document would be empty.");
+            }
+
+            status.innerText = "Removing pages and saving...";
+            saveBtn.disabled = true;
+
+            try {
+                const { PDFDocument } = PDFLib;
+                const donorPdf = await PDFDocument.load(originalPdfBytes);
+                const newPdf = await PDFDocument.create();
+
+                // Figure out which pages to KEEP
+                const pagesToKeep = [];
+                for (let i = 0; i < totalPagesCount; i++) {
+                    if (!pagesToRemove.has(i)) {
+                        pagesToKeep.push(i);
+                    }
+                }
+
+                // Copy only the kept pages to the new PDF
+                const copiedPages = await newPdf.copyPages(donorPdf, pagesToKeep);
+                copiedPages.forEach((page) => newPdf.addPage(page));
+
+                // Download the new file
+                const pdfBytes = await newPdf.save();
+                const blob = new Blob([pdfBytes], { type: 'application/pdf' });
+                const url = URL.createObjectURL(blob);
+                const link = document.createElement('a');
+                link.href = url;
+                link.download = 'Cleaned_Document.pdf';
+                link.click();
+                URL.revokeObjectURL(url);
+
+                status.innerText = `Success! Removed ${pagesToRemove.size} page(s).`;
+            } catch (error) {
+                console.error(error);
+                status.innerText = "Error removing pages.";
+            } finally {
+                saveBtn.disabled = false;
+            }
+        });
+    </script>
+</body>
+</html>

@@ -1,0 +1,135 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Add Page to PDF</title>
+    
+    <script src="https://unpkg.com/pdf-lib@1.17.1/dist/pdf-lib.min.js"></script>
+
+    <style>
+        body { 
+            font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif; 
+            text-align: center; 
+            padding: 50px; 
+            background-color: #f3e8ff; /* Light purple background */
+        }
+        .card { 
+            background: white; 
+            padding: 40px; 
+            border-radius: 12px; 
+            box-shadow: 0 8px 24px rgba(0,0,0,0.1); 
+            display: inline-block;
+            border-top: 5px solid #9333ea; /* Purple accent */
+            max-width: 400px;
+        }
+        h2 { color: #9333ea; margin-top: 0; }
+        input[type="file"], input[type="number"] { 
+            margin: 15px 0; 
+            padding: 8px;
+            width: 90%;
+            box-sizing: border-box;
+        }
+        .input-group {
+            text-align: left;
+            margin-bottom: 20px;
+        }
+        label {
+            font-size: 14px;
+            font-weight: bold;
+            color: #555;
+        }
+        button { 
+            background-color: #9333ea; 
+            color: white; 
+            border: none; 
+            padding: 12px 24px; 
+            border-radius: 6px; 
+            cursor: pointer; 
+            font-size: 16px;
+            font-weight: bold;
+            width: 100%;
+            transition: background-color 0.3s;
+        }
+        button:hover { background-color: #7e22ce; }
+        #status { margin-top: 15px; font-weight: bold; color: #555; }
+    </style>
+</head>
+<body>
+
+    <div class="card">
+        <h2>Add Page to PDF</h2>
+        
+        <div class="input-group">
+            <label for="pdfInput">1. Select your PDF:</label>
+            <input type="file" id="pdfInput" accept=".pdf">
+        </div>
+
+        <div class="input-group">
+            <label for="pageIndex">2. Insert at Page Number (Optional):</label>
+            <br>
+            <small style="color: #888;">Leave blank to add to the very end.</small>
+            <input type="number" id="pageIndex" min="1" placeholder="e.g., 2">
+        </div>
+
+        <button id="addPageBtn">Add Blank Page & Download</button>
+        <div id="status"></div>
+    </div>
+
+    <script>
+        const { PDFDocument } = PDFLib;
+
+        document.getElementById('addPageBtn').addEventListener('click', async () => {
+            const fileInput = document.getElementById('pdfInput');
+            const indexInput = document.getElementById('pageIndex').value;
+            const status = document.getElementById('status');
+            
+            if (!fileInput.files[0]) {
+                alert("Please select a PDF file first!");
+                return;
+            }
+
+            status.innerText = "Modifying PDF... please wait.";
+            const file = fileInput.files[0];
+            const arrayBuffer = await file.arrayBuffer();
+
+            try {
+                // 1. Load the existing PDF
+                const pdfDoc = await PDFDocument.load(arrayBuffer);
+                const totalPages = pdfDoc.getPageCount();
+                
+                // 2. Figure out where to put the new page
+                let insertPosition = parseInt(indexInput);
+
+                // If the user didn't type a number, or typed a number bigger than the document, add it to the end
+                if (isNaN(insertPosition) || insertPosition > totalPages) {
+                    pdfDoc.addPage(); // Adds a standard A4 blank page to the end
+                } else {
+                    // PDF-lib uses 0-based indexing (Page 1 is index 0)
+                    // So if the user wants it to be the new Page 2, we insert at index 1
+                    pdfDoc.insertPage(insertPosition - 1); 
+                }
+
+                // 3. Save the modified PDF
+                const pdfBytes = await pdfDoc.save();
+
+                // 4. Trigger the download
+                const blob = new Blob([pdfBytes], { type: 'application/pdf' });
+                const url = URL.createObjectURL(blob);
+                const link = document.createElement('a');
+                link.href = url;
+                link.download = 'Modified_Document.pdf';
+                document.body.appendChild(link);
+                link.click();
+                document.body.removeChild(link);
+                URL.revokeObjectURL(url);
+
+                status.innerText = "Success! Page added.";
+            } catch (err) {
+                console.error(err);
+                status.innerText = "Error: Could not modify the PDF.";
+            }
+        });
+    </script>
+</body>
+</html>

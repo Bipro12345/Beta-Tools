@@ -1,0 +1,247 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Rotate PDF Pages</title>
+
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.4.120/pdf.min.js"></script>
+    <script src="https://unpkg.com/pdf-lib@1.17.1/dist/pdf-lib.min.js"></script>
+
+    <style>
+        body { 
+            font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif; 
+            text-align: center; 
+            padding: 30px; 
+            background-color: #f0f9ff; /* Light sky blue */
+        }
+        .header-card {
+            background: white; padding: 30px; border-radius: 12px; 
+            box-shadow: 0 4px 15px rgba(0,0,0,0.05);
+            max-width: 600px; margin: 0 auto 20px auto;
+            border-top: 5px solid #0ea5e9; /* Sky blue accent */
+        }
+        h2 { color: #0ea5e9; margin-top: 0; }
+        input[type="file"] { padding: 10px; width: 100%; box-sizing: border-box; margin-bottom: 15px; }
+        
+        .button-group { display: flex; gap: 10px; justify-content: center; }
+        button { 
+            background-color: #0ea5e9; color: white; border: none; 
+            padding: 12px 24px; border-radius: 6px; cursor: pointer; 
+            font-size: 16px; font-weight: bold; transition: 0.3s; 
+        }
+        button:hover { background-color: #0284c7; }
+        button:disabled { background-color: #bae6fd; cursor: not-allowed; }
+        .secondary-btn { background-color: #64748b; }
+        .secondary-btn:hover { background-color: #475569; }
+
+        /* The Grid for thumbnails */
+        #pageGrid {
+            display: grid;
+            grid-template-columns: repeat(auto-fill, minmax(160px, 1fr));
+            gap: 25px;
+            max-width: 1000px;
+            margin: 0 auto;
+            padding: 20px 0;
+        }
+
+        /* Individual Page Thumbnail Card */
+        .page-card {
+            background: white;
+            padding: 15px;
+            border-radius: 8px;
+            box-shadow: 0 4px 6px rgba(0,0,0,0.1);
+            position: relative;
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+        }
+        
+        /* Container for the canvas so it rotates freely without breaking layout */
+        .canvas-container {
+            width: 120px;
+            height: 160px; /* Fixed height to prevent grid jumping */
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            margin-bottom: 10px;
+        }
+
+        .page-card canvas {
+            max-width: 100%;
+            max-height: 100%;
+            border: 1px solid #e5e7eb;
+            box-shadow: 2px 2px 5px rgba(0,0,0,0.1);
+            transition: transform 0.3s ease-in-out; /* Smooth spinning animation */
+        }
+
+        .page-number { font-size: 14px; font-weight: bold; color: #4b5563; margin-bottom: 10px; }
+
+        .rotate-btn {
+            background: #f1f5f9;
+            color: #0f172a;
+            border: 1px solid #cbd5e1;
+            border-radius: 4px;
+            padding: 6px 12px;
+            font-size: 14px;
+            cursor: pointer;
+            width: 100%;
+            transition: 0.2s;
+        }
+        .rotate-btn:hover { background: #e2e8f0; }
+
+        #status { font-weight: bold; color: #555; margin-top: 15px; }
+    </style>
+</head>
+<body>
+
+    <div class="header-card">
+        <h2>Rotate PDF Pages</h2>
+        <p style="color: #666; font-size: 14px;">Upload a PDF, click to spin individual pages, or rotate them all at once!</p>
+        <input type="file" id="pdfInput" accept=".pdf">
+        
+        <div class="button-group" id="actionButtons" style="display: none;">
+            <button class="secondary-btn" id="rotateAllBtn">↻ Rotate All</button>
+            <button id="saveBtn">Save & Download</button>
+        </div>
+        <div id="status"></div>
+    </div>
+
+    <div id="pageGrid"></div>
+
+    <script>
+        pdfjsLib.GlobalWorkerOptions.workerSrc = 'https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.4.120/pdf.worker.min.js';
+
+        let originalPdfBytes = null; 
+        let totalPagesCount = 0;
+        // This array will keep track of how many degrees each page has been rotated
+        let pageRotations = []; 
+
+        const pageGrid = document.getElementById('pageGrid');
+        const status = document.getElementById('status');
+        const saveBtn = document.getElementById('saveBtn');
+        const rotateAllBtn = document.getElementById('rotateAllBtn');
+        const actionButtons = document.getElementById('actionButtons');
+
+        // --- 1. Load PDF and Render Selectable Thumbnails ---
+        document.getElementById('pdfInput').addEventListener('change', async (e) => {
+            const file = e.target.files[0];
+            if (!file) return;
+
+            status.innerText = "Loading document... Please wait.";
+            pageGrid.innerHTML = ""; 
+            pageRotations = [];
+            actionButtons.style.display = "none";
+
+            try {
+                originalPdfBytes = await file.arrayBuffer();
+                const pdf = await pdfjsLib.getDocument({ data: originalPdfBytes }).promise;
+                totalPagesCount = pdf.numPages;
+
+                for (let i = 1; i <= totalPagesCount; i++) {
+                    pageRotations.push(0); // Initialize rotation at 0 for each page
+
+                    const page = await pdf.getPage(i);
+                    const viewport = page.getViewport({ scale: 0.5 }); // Low res thumbnail
+
+                    const canvas = document.createElement('canvas');
+                    const ctx = canvas.getContext('2d');
+                    canvas.height = viewport.height;
+                    canvas.width = viewport.width;
+
+                    await page.render({ canvasContext: ctx, viewport: viewport }).promise;
+
+                    // Create the Card
+                    const card = document.createElement('div');
+                    card.className = 'page-card';
+
+                    const pageLabel = document.createElement('div');
+                    pageLabel.className = 'page-number';
+                    pageLabel.innerText = `Page ${i}`;
+
+                    // Canvas wrapper so rotation doesn't break the grid layout
+                    const canvasWrapper = document.createElement('div');
+                    canvasWrapper.className = 'canvas-container';
+                    canvasWrapper.appendChild(canvas);
+
+                    // Individual Rotate Button
+                    const rotateBtn = document.createElement('button');
+                    rotateBtn.className = 'rotate-btn';
+                    rotateBtn.innerHTML = '↻ Rotate';
+                    
+                    rotateBtn.addEventListener('click', () => {
+                        const index = i - 1;
+                        // Add 90 degrees and wrap around at 360
+                        pageRotations[index] = (pageRotations[index] + 90) % 360; 
+                        canvas.style.transform = `rotate(${pageRotations[index]}deg)`;
+                    });
+
+                    card.appendChild(pageLabel);
+                    card.appendChild(canvasWrapper);
+                    card.appendChild(rotateBtn);
+                    pageGrid.appendChild(card);
+                }
+
+                status.innerText = "Click 'Rotate' on any page to spin it.";
+                actionButtons.style.display = "flex";
+
+            } catch (error) {
+                console.error(error);
+                status.innerText = "Error loading PDF.";
+            }
+        });
+
+        // --- 2. Rotate ALL button logic ---
+        rotateAllBtn.addEventListener('click', () => {
+            const canvases = document.querySelectorAll('.page-card canvas');
+            for (let i = 0; i < totalPagesCount; i++) {
+                pageRotations[i] = (pageRotations[i] + 90) % 360;
+                canvases[i].style.transform = `rotate(${pageRotations[i]}deg)`;
+            }
+        });
+
+        // --- 3. Save the permanently rotated PDF ---
+        saveBtn.addEventListener('click', async () => {
+            if (!originalPdfBytes) return;
+
+            status.innerText = "Applying rotations and saving...";
+            saveBtn.disabled = true;
+            rotateAllBtn.disabled = true;
+
+            try {
+                const { PDFDocument, degrees } = PDFLib;
+                const pdfDoc = await PDFDocument.load(originalPdfBytes);
+                const pages = pdfDoc.getPages();
+
+                // Apply the rotations to the actual PDF pages
+                for (let i = 0; i < pages.length; i++) {
+                    const addedRotation = pageRotations[i];
+                    if (addedRotation > 0) {
+                        const currentRotation = pages[i].getRotation().angle;
+                        // Combine existing rotation with the new rotation
+                        pages[i].setRotation(degrees(currentRotation + addedRotation));
+                    }
+                }
+
+                // Download the new file
+                const pdfBytes = await pdfDoc.save();
+                const blob = new Blob([pdfBytes], { type: 'application/pdf' });
+                const url = URL.createObjectURL(blob);
+                const link = document.createElement('a');
+                link.href = url;
+                link.download = 'Rotated_Document.pdf';
+                link.click();
+                URL.revokeObjectURL(url);
+
+                status.innerText = "Success! PDF Rotated.";
+            } catch (error) {
+                console.error(error);
+                status.innerText = "Error saving PDF.";
+            } finally {
+                saveBtn.disabled = false;
+                rotateAllBtn.disabled = false;
+            }
+        });
+    </script>
+</body>
+</html>

@@ -1,0 +1,118 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>PDF to JPG Converter</title>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.min.js"></script>
+    <style>
+        body { font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif; text-align: center; padding: 30px; background-color: #f8f9fa; color: #333; }
+        .card { 
+            background: white; padding: 30px; border-radius: 12px; 
+            box-shadow: 0 10px 25px rgba(0,0,0,0.1); display: inline-block;
+            border-top: 6px solid #e74c3c; max-width: 500px; width: 100%;
+        }
+        h2 { color: #e74c3c; margin-top: 0; }
+        input[type="file"] { margin: 20px 0; display: block; width: 100%; }
+        button { 
+            background-color: #e74c3c; color: white; border: none; 
+            padding: 14px 28px; border-radius: 8px; cursor: pointer; 
+            font-size: 16px; font-weight: bold; transition: background 0.3s;
+        }
+        button:hover { background-color: #c0392b; }
+        button:disabled { background-color: #ccc; cursor: not-allowed; }
+        #status { margin-top: 20px; font-size: 0.9rem; color: #666; }
+        #previewContainer { margin-top: 30px; display: grid; grid-template-columns: repeat(auto-fit, minmax(200px, 1fr)); gap: 20px; padding: 20px; }
+        .page-card { background: white; padding: 10px; border-radius: 8px; box-shadow: 0 2px 5px rgba(0,0,0,0.1); }
+        canvas { width: 100%; height: auto; border: 1px solid #eee; margin-bottom: 10px; }
+        .download-link { display: inline-block; background: #3498db; color: white; text-decoration: none; padding: 5px 10px; border-radius: 4px; font-size: 12px; }
+    </style>
+</head>
+<body>
+
+    <div class="card">
+        <h2>PDF to JPG Converter</h2>
+        <p>Convert your PDF pages into images locally in your browser.</p>
+        <input type="file" id="pdfInput" accept="application/pdf">
+        <button id="convertBtn">Convert PDF</button>
+        <div id="status">Ready</div>
+    </div>
+
+    <div id="previewContainer"></div>
+
+    <script>
+        // Ensure the library is loaded correctly
+        const pdfjsLib = window['pdfjs-dist/build/pdf'];
+        pdfjsLib.GlobalWorkerOptions.workerSrc = 'https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.worker.min.js';
+
+        document.getElementById('convertBtn').addEventListener('click', async () => {
+            const fileInput = document.getElementById('pdfInput');
+            const status = document.getElementById('status');
+            const container = document.getElementById('previewContainer');
+            
+            if (!fileInput.files[0]) return alert("Please select a PDF file!");
+
+            const file = fileInput.files[0];
+            const btn = document.getElementById('convertBtn');
+            
+            // UI Reset
+            btn.disabled = true;
+            status.innerText = "Loading PDF...";
+            container.innerHTML = ""; 
+
+            try {
+                const arrayBuffer = await file.arrayBuffer();
+                const pdf = await pdfjsLib.getDocument({ data: arrayBuffer }).promise;
+                
+                status.innerText = `Found ${pdf.numPages} pages. Starting conversion...`;
+
+                for (let i = 1; i <= pdf.numPages; i++) {
+                    status.innerText = `Rendering page ${i} of ${pdf.numPages}...`;
+                    
+                    const page = await pdf.getPage(i);
+                    const scale = 2; // Increase for higher quality
+                    const viewport = page.getViewport({ scale });
+                    
+                    // Create visual elements
+                    const pageWrapper = document.createElement('div');
+                    pageWrapper.className = 'page-card';
+                    
+                    const canvas = document.createElement('canvas');
+                    const context = canvas.getContext('2d');
+                    canvas.height = viewport.height;
+                    canvas.width = viewport.width;
+
+                    await page.render({ canvasContext: context, viewport: viewport }).promise;
+                    
+                    // Create Download Link
+                    const imgData = canvas.toDataURL('image/jpeg', 0.9);
+                    const dl = document.createElement('a');
+                    dl.href = imgData;
+                    dl.download = `Page_${i}.jpg`;
+                    dl.className = 'download-link';
+                    dl.innerText = `Download Page ${i}`;
+
+                    pageWrapper.appendChild(canvas);
+                    pageWrapper.appendChild(dl);
+                    container.appendChild(pageWrapper);
+
+                    // Optional: Auto-download with delay (to bypass some browser blocks)
+                    // If you want full auto-download, uncomment below:
+                    /*
+                    setTimeout(() => {
+                        dl.click();
+                    }, i * 500); 
+                    */
+                }
+
+                status.innerText = "Conversion Complete!";
+            } catch (err) {
+                console.error(err);
+                status.innerText = "Error: " + err.message;
+            } finally {
+                btn.disabled = false;
+            }
+        });
+    </script>
+</body>
+</html>

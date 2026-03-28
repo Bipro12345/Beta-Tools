@@ -1,0 +1,227 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Scan to PDF</title>
+
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/jspdf/2.5.1/jspdf.umd.min.js"></script>
+
+    <style>
+        body { 
+            font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif; 
+            text-align: center; 
+            padding: 20px; 
+            background-color: #f0fdf4; /* Light mint background */
+        }
+        .card { 
+            background: white; 
+            padding: 30px; 
+            border-radius: 12px; 
+            box-shadow: 0 8px 24px rgba(0,0,0,0.1); 
+            display: inline-block;
+            border-top: 5px solid #14b8a6; /* Teal accent */
+            max-width: 500px;
+            width: 100%;
+            text-align: center;
+        }
+        h2 { color: #14b8a6; margin-top: 0; }
+        p { color: #64748b; font-size: 14px; margin-bottom: 20px; }
+        
+        /* The Camera Viewfinder */
+        #camera-container {
+            width: 100%;
+            max-width: 400px;
+            margin: 0 auto;
+            border: 3px solid #334155;
+            border-radius: 8px;
+            overflow: hidden;
+            background: #000;
+            display: none; /* Hidden until camera starts */
+        }
+        #videoElement {
+            width: 100%;
+            display: block;
+        }
+
+        /* The hidden canvas used to secretly snap the photo */
+        #snapCanvas { display: none; }
+
+        /* The gallery where captured pages appear */
+        #gallery {
+            display: flex;
+            flex-wrap: wrap;
+            gap: 10px;
+            justify-content: center;
+            margin-top: 20px;
+        }
+        .scanned-page {
+            width: 80px;
+            border: 2px solid #cbd5e1;
+            border-radius: 4px;
+            box-shadow: 0 2px 4px rgba(0,0,0,0.1);
+        }
+
+        .btn-group { display: flex; gap: 10px; justify-content: center; margin-top: 20px; flex-wrap: wrap; }
+        button { 
+            background-color: #14b8a6; color: white; border: none; 
+            padding: 12px 20px; border-radius: 6px; cursor: pointer; 
+            font-size: 15px; font-weight: bold; transition: 0.3s; 
+            flex: 1; min-width: 120px;
+        }
+        button:hover { background-color: #0f766e; }
+        .btn-danger { background-color: #ef4444; }
+        .btn-danger:hover { background-color: #b91c1c; }
+        button:disabled { background-color: #99f6e4; cursor: not-allowed; }
+
+        #status { font-weight: bold; color: #555; margin-top: 15px; }
+    </style>
+</head>
+<body>
+
+    <div class="card">
+        <h2>Document Scanner</h2>
+        <p>Use your camera to scan pages and merge them into a PDF.</p>
+        
+        <button id="startCameraBtn">📸 Start Camera</button>
+
+        <div id="camera-container">
+            <video id="videoElement" autoplay playsinline></video>
+        </div>
+
+        <div class="btn-group" id="action-buttons" style="display: none;">
+            <button id="captureBtn">Take Photo</button>
+            <button id="stopCameraBtn" class="btn-danger">Stop Camera</button>
+        </div>
+
+        <div id="gallery"></div>
+
+        <button id="createPdfBtn" style="display: none; margin-top: 20px; width: 100%; background-color: #8b5cf6;">
+            📄 Create PDF (<span id="pageCount">0</span> pages)
+        </button>
+        
+        <div id="status"></div>
+    </div>
+
+    <canvas id="snapCanvas"></canvas>
+
+    <script>
+        const video = document.getElementById('videoElement');
+        const canvas = document.getElementById('snapCanvas');
+        const ctx = canvas.getContext('2d');
+        const gallery = document.getElementById('gallery');
+        const status = document.getElementById('status');
+        
+        const startCameraBtn = document.getElementById('startCameraBtn');
+        const stopCameraBtn = document.getElementById('stopCameraBtn');
+        const captureBtn = document.getElementById('captureBtn');
+        const createPdfBtn = document.getElementById('createPdfBtn');
+        
+        let stream = null;
+        let capturedImages = []; // Stores the Base64 image data for the PDF
+
+        // --- 1. Start the Camera ---
+        startCameraBtn.addEventListener('click', async () => {
+            try {
+                // Request camera access. 'facingMode: environment' prefers the back camera on phones!
+                stream = await navigator.mediaDevices.getUserMedia({ 
+                    video: { facingMode: 'environment' } 
+                });
+                
+                video.srcObject = stream;
+                
+                // Update UI
+                document.getElementById('camera-container').style.display = 'block';
+                document.getElementById('action-buttons').style.display = 'flex';
+                startCameraBtn.style.display = 'none';
+                status.innerText = "Camera active. Ready to scan!";
+            } catch (err) {
+                console.error("Camera error:", err);
+                status.innerText = "Error: Could not access camera. Please check permissions or ensure you are on HTTPS.";
+                status.style.color = "red";
+            }
+        });
+
+        // --- 2. Stop the Camera ---
+        function stopCamera() {
+            if (stream) {
+                stream.getTracks().forEach(track => track.stop()); // Turns off the hardware light
+                video.srcObject = null;
+            }
+            document.getElementById('camera-container').style.display = 'none';
+            document.getElementById('action-buttons').style.display = 'none';
+            startCameraBtn.style.display = 'inline-block';
+            status.innerText = "Camera stopped.";
+        }
+        stopCameraBtn.addEventListener('click', stopCamera);
+
+        // --- 3. Capture a Photo ---
+        captureBtn.addEventListener('click', () => {
+            if (!stream) return;
+
+            // Set the hidden canvas to match the exact resolution of the video feed
+            canvas.width = video.videoWidth;
+            canvas.height = video.videoHeight;
+
+            // Draw the current frame of the video onto the canvas
+            ctx.drawImage(video, 0, 0, canvas.width, canvas.height);
+
+            // Turn that drawing into a JPEG image string
+            const imgData = canvas.toDataURL('image/jpeg', 0.9);
+            capturedImages.push(imgData);
+
+            // Create a small thumbnail to show the user what they just captured
+            const imgElement = document.createElement('img');
+            imgElement.src = imgData;
+            imgElement.className = 'scanned-page';
+            gallery.appendChild(imgElement);
+
+            // Update the Create PDF button
+            document.getElementById('pageCount').innerText = capturedImages.length;
+            createPdfBtn.style.display = 'inline-block';
+            status.innerText = `Captured page ${capturedImages.length}!`;
+        });
+
+        // --- 4. Stitch Images into a PDF ---
+        createPdfBtn.addEventListener('click', () => {
+            if (capturedImages.length === 0) return;
+
+            status.innerText = "Building PDF... please wait.";
+            createPdfBtn.disabled = true;
+
+            try {
+                const { jsPDF } = window.jspdf;
+                // Create a standard A4 portrait PDF
+                const pdf = new jsPDF({ orientation: "portrait", unit: "mm", format: "a4" });
+
+                const pdfWidth = pdf.internal.pageSize.getWidth();
+                const pdfHeight = pdf.internal.pageSize.getHeight();
+
+                // Loop through all our pictures
+                for (let i = 0; i < capturedImages.length; i++) {
+                    if (i > 0) pdf.addPage(); // Add a new page for every picture after the first
+                    
+                    // We stretch the photo to cover the entire A4 page. 
+                    // (You could add math here to keep the aspect ratio if you wanted!)
+                    pdf.addImage(capturedImages[i], 'JPEG', 0, 0, pdfWidth, pdfHeight);
+                }
+
+                pdf.save("Scanned_Document.pdf");
+                status.innerText = "Success! Document downloaded.";
+
+                // Clean up the gallery so they can start over
+                capturedImages = [];
+                gallery.innerHTML = "";
+                createPdfBtn.style.display = 'none';
+                stopCamera();
+
+            } catch (err) {
+                console.error(err);
+                status.innerText = "Error creating PDF.";
+            } finally {
+                createPdfBtn.disabled = false;
+            }
+        });
+    </script>
+</body>
+</html>

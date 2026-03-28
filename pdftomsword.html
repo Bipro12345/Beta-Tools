@@ -1,0 +1,77 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <title>PDF to Word Converter</title>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.4.120/pdf.min.js"></script>
+    <script src="https://unpkg.com/docx@7.1.0/build/index.js"></script>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/FileSaver.js/2.0.5/FileSaver.min.js"></script>
+
+    <style>
+        body { font-family: sans-serif; text-align: center; padding: 50px; background-color: #f4f4f9; }
+        .container { background: white; padding: 30px; border-radius: 10px; box-shadow: 0 4px 10px rgba(0,0,0,0.1); display: inline-block; }
+        button { background: #2b579a; color: white; border: none; padding: 12px 20px; border-radius: 5px; cursor: pointer; margin-top: 20px; }
+        #status { margin-top: 15px; color: #666; font-size: 14px; }
+    </style>
+</head>
+<body>
+
+    <div class="container">
+        <h2>PDF to Word (Text Extractor)</h2>
+        <input type="file" id="pdfInput" accept=".pdf">
+        <br>
+        <button onclick="convertToWord()">Convert to .docx</button>
+        <div id="status"></div>
+    </div>
+
+    <script>
+        // Initialize PDF.js worker
+        pdfjsLib.GlobalWorkerOptions.workerSrc = 'https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.4.120/pdf.worker.min.js';
+
+        async function convertToWord() {
+            const input = document.getElementById('pdfInput');
+            const status = document.getElementById('status');
+            
+            if (!input.files[0]) return alert("Please select a PDF file.");
+
+            status.innerText = "Processing PDF... please wait.";
+            const file = input.files[0];
+            const arrayBuffer = await file.arrayBuffer();
+
+            try {
+                // 1. Load the PDF
+                const pdf = await pdfjsLib.getDocument({ data: arrayBuffer }).promise;
+                let fullText = [];
+
+                // 2. Extract text page by page
+                for (let i = 1; i <= pdf.numPages; i++) {
+                    const page = await pdf.getPage(i);
+                    const textContent = await page.getTextContent();
+                    const pageText = textContent.items.map(item => item.str).join(" ");
+                    fullText.push(pageText);
+                }
+
+                // 3. Create a real Word Document using docx.js
+                const doc = new docx.Document({
+                    sections: [{
+                        children: fullText.map(text => new docx.Paragraph({
+                            children: [new docx.TextRun(text)],
+                            spacing: { after: 200 }
+                        }))
+                    }]
+                });
+
+                // 4. Save the file
+                docx.Packer.toBlob(doc).then(blob => {
+                    saveAs(blob, "Converted_Document.docx");
+                    status.innerText = "Conversion complete!";
+                });
+
+            } catch (err) {
+                console.error(err);
+                status.innerText = "Error: Could not convert file.";
+            }
+        }
+    </script>
+</body>
+</html>

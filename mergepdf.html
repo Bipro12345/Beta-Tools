@@ -1,0 +1,97 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>PDF Merger Tool</title>
+    <script src="https://unpkg.com/pdf-lib@1.17.1/dist/pdf-lib.min.js"></script>
+    <style>
+        body { 
+            font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif; 
+            display: flex; justify-content: center; align-items: center; 
+            height: 100vh; margin: 0; background-color: #f4f7f6;
+        }
+        .card {
+            background: white; padding: 2rem; border-radius: 12px;
+            box-shadow: 0 10px 25px rgba(0,0,0,0.1); text-align: center;
+            width: 100%; max-width: 400px;
+        }
+        h2 { color: #333; margin-bottom: 1.5rem; }
+        input[type="file"] { margin-bottom: 1.5rem; width: 100%; }
+        button {
+            background-color: #e74c3c; color: white; border: none;
+            padding: 12px 24px; border-radius: 6px; cursor: pointer;
+            font-size: 1rem; font-weight: 600; transition: 0.3s;
+        }
+        button:hover { background-color: #c0392b; }
+        button:disabled { background-color: #bdc3c7; cursor: not-allowed; }
+        #status { margin-top: 1rem; font-size: 0.9rem; color: #666; }
+    </style>
+</head>
+<body>
+
+    <div class="card">
+        <h2>Merge PDFs</h2>
+        <input type="file" id="pdfInput" accept=".pdf" multiple>
+        <br>
+        <button id="mergeBtn">Merge & Download</button>
+        <p id="status"></p>
+    </div>
+
+    <script>
+        const { PDFDocument } = PDFLib;
+
+        document.getElementById('mergeBtn').addEventListener('click', async () => {
+            const fileInput = document.getElementById('pdfInput');
+            const status = document.getElementById('status');
+            const btn = document.getElementById('mergeBtn');
+
+            if (fileInput.files.length < 2) {
+                alert('Please select at least 2 PDF files to merge.');
+                return;
+            }
+
+            btn.disabled = true;
+            status.innerText = "Merging... please wait.";
+
+            try {
+                // 1. Create a new, empty PDF document
+                const mergedPdf = await PDFDocument.create();
+
+                // 2. Loop through each selected file
+                for (const file of fileInput.files) {
+                    const arrayBuffer = await file.arrayBuffer();
+                    
+                    // Load the existing PDF
+                    const donorPdf = await PDFDocument.load(arrayBuffer);
+                    
+                    // Copy all pages from the donor PDF to the new merged PDF
+                    const pages = await mergedPdf.copyPages(donorPdf, donorPdf.getPageIndices());
+                    pages.forEach((page) => mergedPdf.addPage(page));
+                }
+
+                // 3. Save the merged PDF as bytes
+                const mergedPdfBytes = await mergedPdf.save();
+
+                // 4. Trigger the download
+                const blob = new Blob([mergedPdfBytes], { type: 'application/pdf' });
+                const url = URL.createObjectURL(blob);
+                const link = document.createElement('a');
+                link.href = url;
+                link.download = 'merged_document.pdf';
+                document.body.appendChild(link);
+                link.click();
+                document.body.removeChild(link);
+
+                status.innerText = "Success! PDF merged.";
+            } catch (error) {
+                console.error(error);
+                status.innerText = "Error: Could not merge files.";
+            } finally {
+                btn.disabled = false;
+            }
+        });
+    </script>
+
+</body>
+</html>

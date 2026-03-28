@@ -1,0 +1,150 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Excel to PDF Converter</title>
+
+    <script src="https://cdn.sheetjs.com/xlsx-0.20.0/package/dist/xlsx.full.min.js"></script>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/jspdf/2.5.1/jspdf.umd.min.js"></script>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/jspdf-autotable/3.8.1/jspdf.plugin.autotable.min.js"></script>
+
+    <style>
+        body { 
+            font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif; 
+            text-align: center; 
+            padding: 40px; 
+            background-color: #f0fdf4; /* Very light green */
+        }
+        .card { 
+            background: white; 
+            padding: 40px; 
+            border-radius: 12px; 
+            box-shadow: 0 8px 24px rgba(0,0,0,0.1); 
+            display: inline-block;
+            border-top: 5px solid #16a34a; /* Excel Green */
+            max-width: 450px;
+            width: 100%;
+            text-align: left;
+        }
+        h2 { color: #16a34a; text-align: center; margin-top: 0; }
+        .input-group { margin-bottom: 20px; }
+        label { font-size: 14px; font-weight: bold; color: #555; display: block; margin-bottom: 5px; }
+        
+        input[type="file"] { 
+            padding: 10px; width: 100%; box-sizing: border-box; 
+            border: 1px solid #ccc; border-radius: 5px; 
+        }
+        
+        button { 
+            background-color: #16a34a; color: white; border: none; 
+            padding: 12px 24px; border-radius: 6px; cursor: pointer; 
+            font-size: 16px; font-weight: bold; width: 100%; 
+            transition: 0.3s; 
+            margin-top: 10px;
+        }
+        button:hover { background-color: #15803d; }
+        button:disabled { background-color: #86efac; cursor: not-allowed; }
+        
+        #status { text-align: center; margin-top: 15px; font-weight: bold; color: #555; }
+        .warning { font-size: 12px; color: #dc2626; margin-top: 10px; text-align: center; }
+    </style>
+</head>
+<body>
+
+    <div class="card">
+        <h2>Excel to PDF</h2>
+        
+        <div class="input-group">
+            <label for="excelInput">Select an Excel File (.xlsx, .csv):</label>
+            <input type="file" id="excelInput" accept=".xlsx, .xls, .csv">
+        </div>
+
+        <button id="convertBtn">Convert to PDF</button>
+        <div id="status"></div>
+        <p class="warning">Note: This extracts raw tabular data. Charts, colors, and images will not be carried over.</p>
+    </div>
+
+    <script>
+        document.getElementById('convertBtn').addEventListener('click', () => {
+            const fileInput = document.getElementById('excelInput');
+            const status = document.getElementById('status');
+            const btn = document.getElementById('convertBtn');
+
+            if (!fileInput.files[0]) return alert("Please select an Excel file first!");
+
+            btn.disabled = true;
+            status.innerText = "Reading Excel file...";
+            
+            const file = fileInput.files[0];
+            const reader = new FileReader();
+
+            reader.onload = function(e) {
+                try {
+                    // 1. Read the Excel File
+                    const data = new Uint8Array(e.target.result);
+                    const workbook = XLSX.read(data, { type: 'array' });
+
+                    // Grab the first sheet in the workbook
+                    const firstSheetName = workbook.SheetNames[0];
+                    const worksheet = workbook.Sheets[firstSheetName];
+
+                    // Convert the sheet to an Array of Arrays (perfect for tables)
+                    // header: 1 tells it to output raw rows without trying to guess object keys
+                    const excelData = XLSX.utils.sheet_to_json(worksheet, { header: 1 });
+
+                    if (excelData.length === 0) {
+                        throw new Error("The Excel sheet appears to be empty.");
+                    }
+
+                    status.innerText = "Drawing PDF Table...";
+
+                    // 2. Initialize jsPDF
+                    const { jsPDF } = window.jspdf;
+                    const doc = new jsPDF({
+                        orientation: "landscape", // Landscape is usually better for wide Excel tables
+                        unit: "pt",
+                        format: "A4"
+                    });
+
+                    // 3. Use AutoTable to draw the grid
+                    doc.autoTable({
+                        body: excelData,
+                        theme: 'grid', // Makes it look like a spreadsheet
+                        styles: { 
+                            fontSize: 8, 
+                            cellPadding: 3,
+                            overflow: 'linebreak' // Wraps text if columns are too wide
+                        },
+                        headStyles: { 
+                            fillColor: [22, 163, 74], // Match the Excel green header
+                            textColor: 255,
+                            fontStyle: 'bold'
+                        },
+                        // We treat the first row of the Excel file as the header
+                        startY: 30,
+                        margin: { top: 30, left: 20, right: 20 }
+                    });
+
+                    // Add a title to the top of the PDF
+                    doc.setFontSize(14);
+                    doc.setTextColor(40);
+                    doc.text("Converted Spreadsheet: " + firstSheetName, 20, 20);
+
+                    // 4. Download the PDF
+                    doc.save('Converted_Spreadsheet.pdf');
+                    status.innerText = "Success! PDF downloaded.";
+
+                } catch (err) {
+                    console.error(err);
+                    status.innerText = "Error: " + err.message;
+                } finally {
+                    btn.disabled = false;
+                }
+            };
+
+            reader.readAsArrayBuffer(file);
+        });
+    </script>
+</body>
+</html>

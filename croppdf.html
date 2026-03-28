@@ -1,0 +1,169 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Crop PDF Margins</title>
+    
+    <script src="https://unpkg.com/pdf-lib@1.17.1/dist/pdf-lib.min.js"></script>
+
+    <style>
+        body { 
+            font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif; 
+            text-align: center; 
+            padding: 40px; 
+            background-color: #f1f5f9; /* Light slate */
+        }
+        .card { 
+            background: white; 
+            padding: 40px; 
+            border-radius: 12px; 
+            box-shadow: 0 8px 24px rgba(0,0,0,0.1); 
+            display: inline-block;
+            border-top: 5px solid #10b981; /* Emerald green */
+            max-width: 450px;
+            width: 100%;
+            text-align: left;
+        }
+        h2 { color: #10b981; text-align: center; margin-top: 0; }
+        .input-group { margin-bottom: 20px; }
+        label { font-size: 14px; font-weight: bold; color: #555; display: block; margin-bottom: 5px; }
+        input[type="file"] { margin-bottom: 15px; width: 100%; }
+        
+        /* Grid for margin inputs */
+        .margin-grid {
+            display: grid;
+            grid-template-columns: 1fr 1fr;
+            gap: 15px;
+            margin-bottom: 20px;
+        }
+        .margin-box {
+            background: #f8fafc;
+            padding: 10px;
+            border: 1px solid #e2e8f0;
+            border-radius: 6px;
+            text-align: center;
+        }
+        .margin-box label { font-size: 12px; color: #64748b; }
+        .margin-box input {
+            width: 80%;
+            padding: 5px;
+            text-align: center;
+            border: 1px solid #cbd5e1;
+            border-radius: 4px;
+        }
+
+        button { 
+            background-color: #10b981; color: white; border: none; 
+            padding: 12px 24px; border-radius: 6px; cursor: pointer; 
+            font-size: 16px; font-weight: bold; width: 100%; 
+            transition: 0.3s; 
+        }
+        button:hover { background-color: #059669; }
+        #status { text-align: center; margin-top: 15px; font-weight: bold; color: #555; }
+    </style>
+</head>
+<body>
+
+    <div class="card">
+        <h2>Crop PDF Pages</h2>
+        
+        <div class="input-group">
+            <label for="pdfInput">1. Select your PDF:</label>
+            <input type="file" id="pdfInput" accept=".pdf">
+        </div>
+
+        <label>2. Margins to remove (in points):</label>
+        <div class="margin-grid">
+            <div class="margin-box">
+                <label>Top</label><br>
+                <input type="number" id="cropTop" value="50" min="0">
+            </div>
+            <div class="margin-box">
+                <label>Bottom</label><br>
+                <input type="number" id="cropBottom" value="50" min="0">
+            </div>
+            <div class="margin-box">
+                <label>Left</label><br>
+                <input type="number" id="cropLeft" value="30" min="0">
+            </div>
+            <div class="margin-box">
+                <label>Right</label><br>
+                <input type="number" id="cropRight" value="30" min="0">
+            </div>
+        </div>
+
+        <button id="cropBtn">Crop & Download</button>
+        <div id="status"></div>
+    </div>
+
+    <script>
+        const { PDFDocument } = PDFLib;
+
+        document.getElementById('cropBtn').addEventListener('click', async () => {
+            const fileInput = document.getElementById('pdfInput');
+            const status = document.getElementById('status');
+            const btn = document.getElementById('cropBtn');
+
+            // Get margin values (default to 0 if left blank)
+            const topMargin = parseFloat(document.getElementById('cropTop').value) || 0;
+            const bottomMargin = parseFloat(document.getElementById('cropBottom').value) || 0;
+            const leftMargin = parseFloat(document.getElementById('cropLeft').value) || 0;
+            const rightMargin = parseFloat(document.getElementById('cropRight').value) || 0;
+
+            if (!fileInput.files[0]) {
+                alert("Please select a PDF file first!");
+                return;
+            }
+
+            btn.disabled = true;
+            status.innerText = "Cropping PDF... please wait.";
+
+            try {
+                const file = fileInput.files[0];
+                const arrayBuffer = await file.arrayBuffer();
+                const pdfDoc = await PDFDocument.load(arrayBuffer);
+                const pages = pdfDoc.getPages();
+
+                // Loop through every page and apply the crop
+                pages.forEach((page) => {
+                    // Get current dimensions
+                    const { width, height } = page.getSize();
+                    
+                    // PDF coordinates start at (0,0) in the BOTTOM-LEFT corner
+                    const newX = leftMargin;
+                    const newY = bottomMargin;
+                    const newWidth = width - leftMargin - rightMargin;
+                    const newHeight = height - topMargin - bottomMargin;
+
+                    // Ensure we don't crop more than the page size!
+                    if (newWidth > 0 && newHeight > 0) {
+                        page.setCropBox(newX, newY, newWidth, newHeight);
+                    }
+                });
+
+                // Save the modified PDF
+                const pdfBytes = await pdfDoc.save();
+
+                // Trigger the download
+                const blob = new Blob([pdfBytes], { type: 'application/pdf' });
+                const url = URL.createObjectURL(blob);
+                const link = document.createElement('a');
+                link.href = url;
+                link.download = 'Cropped_Document.pdf';
+                document.body.appendChild(link);
+                link.click();
+                document.body.removeChild(link);
+                URL.revokeObjectURL(url);
+
+                status.innerText = "Success! PDF cropped.";
+            } catch (err) {
+                console.error(err);
+                status.innerText = "Error: Could not crop the PDF.";
+            } finally {
+                btn.disabled = false;
+            }
+        });
+    </script>
+</body>
+</html>

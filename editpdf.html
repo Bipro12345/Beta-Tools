@@ -1,0 +1,177 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Visual PDF Editor</title>
+    
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.4.120/pdf.min.js"></script>
+    <script src="https://unpkg.com/pdf-lib@1.17.1/dist/pdf-lib.min.js"></script>
+
+    <style>
+        body { font-family: 'Segoe UI', sans-serif; text-align: center; padding: 20px; background-color: #f8fafc; margin: 0; }
+        .toolbar { background: white; padding: 15px; border-radius: 8px; box-shadow: 0 4px 10px rgba(0,0,0,0.1); margin-bottom: 20px; display: inline-block; }
+        .editor-container { position: relative; display: inline-block; margin-top: 10px; border: 1px solid #cbd5e1; box-shadow: 0 10px 25px rgba(0,0,0,0.1); }
+        
+        button { background-color: #3b82f6; color: white; border: none; padding: 10px 20px; border-radius: 6px; cursor: pointer; font-weight: bold; margin: 0 5px; }
+        button:hover { background-color: #2563eb; }
+        .save-btn { background-color: #10b981; }
+        .save-btn:hover { background-color: #059669; }
+        
+        #pdfCanvas { cursor: crosshair; display: block; }
+        
+        /* The floating input box that appears when you click */
+        .floating-input {
+            position: absolute;
+            border: 2px dashed #3b82f6;
+            background: transparent;
+            font-size: 16px;
+            font-family: Helvetica, sans-serif;
+            color: red; /* Red text so it's easy to see while editing */
+            padding: 2px;
+            outline: none;
+            min-width: 100px;
+            z-index: 10;
+        }
+    </style>
+</head>
+<body>
+
+    <div class="toolbar">
+        <h2>PDF Text Editor (Annotator)</h2>
+        <input type="file" id="pdfInput" accept=".pdf">
+        <br><br>
+        <p style="font-size: 14px; color: #64748b;">1. Upload a PDF. 2. Click anywhere on the page to type. 3. Click Save.</p>
+        <button class="save-btn" id="saveBtn">Save Edited PDF</button>
+    </div>
+
+    <br>
+
+    <div class="editor-container" id="editorContainer">
+        <canvas id="pdfCanvas"></canvas>
+    </div>
+
+    <script>
+        pdfjsLib.GlobalWorkerOptions.workerSrc = 'https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.4.120/pdf.worker.min.js';
+
+        let currentPdfBytes = null;
+        let pdfDimensions = { width: 0, height: 0 };
+        const canvas = document.getElementById('pdfCanvas');
+        const ctx = canvas.getContext('2d');
+        const container = document.getElementById('editorContainer');
+        
+        // Keep track of the text the user adds: { text, x, y }
+        let annotations = [];
+
+        // 1. Load and display the PDF
+        document.getElementById('pdfInput').addEventListener('change', async (e) => {
+            const file = e.target.files[0];
+            if (!file) return;
+
+            currentPdfBytes = await file.arrayBuffer();
+            const pdf = await pdfjsLib.getDocument({ data: currentPdfBytes }).promise;
+            
+            // For this simple editor, we only load Page 1
+            const page = await pdf.getPage(1);
+            const viewport = page.getViewport({ scale: 1.5 }); // Scale 1.5 for better reading
+
+            canvas.height = viewport.height;
+            canvas.width = viewport.width;
+            pdfDimensions.width = viewport.width;
+            pdfDimensions.height = viewport.height;
+
+            await page.render({ canvasContext: ctx, viewport: viewport }).promise;
+            
+            // Clear old annotations
+            annotations = [];
+            document.querySelectorAll('.floating-input').forEach(el => el.remove());
+        });
+
+        // 2. Click to add text
+        canvas.addEventListener('click', (e) => {
+            if (!currentPdfBytes) return alert("Please upload a PDF first!");
+
+            // Get exact coordinates of the click relative to the canvas
+            const rect = canvas.getBoundingClientRect();
+            const x = e.clientX - rect.left;
+            const y = e.clientY - rect.top;
+
+            // Create a floating input box at those coordinates
+            const input = document.createElement('input');
+            input.type = 'text';
+            input.className = 'floating-input';
+            input.style.left = `${x}px`;
+            
+            // Adjust Y slightly so the text baseline matches the mouse click
+            input.style.top = `${y - 10}px`; 
+            input.placeholder = "Type here...";
+
+            container.appendChild(input);
+            input.focus();
+
+            // When the user clicks away or presses Enter, save the text data
+            input.addEventListener('blur', () => saveAnnotation(input, x, y));
+            input.addEventListener('keypress', (event) => {
+                if (event.key === 'Enter') input.blur();
+            });
+        });
+
+        function saveAnnotation(inputElement, x, y) {
+            const text = inputElement.value.trim();
+            if (text !== "") {
+                // Save it to our array
+                annotations.push({ text, x, y });
+                // Make the input box look like permanent text
+                inputElement.style.border = "none";
+                inputElement.disabled = true;
+            } else {
+                // If they typed nothing, remove the box
+                inputElement.remove();
+            }
+        }
+
+        // 3. Bake the text into the real PDF and download
+        document.getElementById('saveBtn').addEventListener('click', async () => {
+            if (!currentPdfBytes) return alert("Upload a PDF first.");
+            if (annotations.length === 0) return alert("Click on the PDF to add some text first!");
+
+            const { PDFDocument, rgb, StandardFonts } = PDFLib;
+            const pdfDoc = await PDFDocument.load(currentPdfBytes);
+            const page = pdfDoc.getPages()[0]; // Getting Page 1
+            
+            const helveticaFont = await pdfDoc.embedFont(StandardFonts.Helvetica);
+
+            // PDF-lib uses a different coordinate system! 
+            // Canvas (0,0) is Top-Left. PDF (0,0) is Bottom-Left.
+            // We have to translate the math.
+            const pdfHeight = page.getSize().height;
+            const scaleRatio = pdfHeight / canvas.height; 
+
+            annotations.forEach(ann => {
+                const pdfX = ann.x * scaleRatio;
+                // Flip the Y axis for PDF-lib
+                const pdfY = pdfHeight - (ann.y * scaleRatio) - 12; 
+
+                page.drawText(ann.text, {
+                    x: pdfX,
+                    y: pdfY,
+                    size: 16 * scaleRatio, // Scale the font size to match the zoom level
+                    font: helveticaFont,
+                    color: rgb(1, 0, 0), // Red color
+                });
+            });
+
+            const modifiedPdfBytes = await pdfDoc.save();
+            
+            // Download the file
+            const blob = new Blob([modifiedPdfBytes], { type: 'application/pdf' });
+            const url = URL.createObjectURL(blob);
+            const link = document.createElement('a');
+            link.href = url;
+            link.download = "Edited_Document.pdf";
+            link.click();
+            URL.revokeObjectURL(url);
+        });
+    </script>
+</body>
+</html>
